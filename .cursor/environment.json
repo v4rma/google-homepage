@@ -1,0 +1,17 @@
+{
+  "name": "google-homepage",
+  "install": "npm install",
+  "terminals": [
+    {
+      "name": "dev-server",
+      "command": "npm run dev",
+      "description": "Static dev server (live-server) serving the Google homepage replica on http://localhost:3000 with auto-reload."
+    }
+  ],
+  "ports": [
+    {
+      "name": "Dev server",
+      "port": 3000
+    }
+  ]
+}
