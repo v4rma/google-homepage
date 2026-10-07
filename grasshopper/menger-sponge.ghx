@@ -1,0 +1,482 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Archive name="Root">
+  <items count="1">
+    <item name="ArchiveVersion" type_name="gh_version" type_code="80">
+      <Major>0</Major>
+      <Minor>2</Minor>
+      <Revision>2</Revision>
+    </item>
+  </items>
+  <chunks count="1">
+    <chunk name="Definition">
+      <items count="1">
+        <item name="plugin_version" type_name="gh_version" type_code="80">
+          <Major>1</Major>
+          <Minor>0</Minor>
+          <Revision>7</Revision>
+        </item>
+      </items>
+      <chunks count="4">
+        <chunk name="DocumentHeader">
+          <items count="5">
+            <item name="DocumentID" type_name="gh_guid" type_code="9">c4a8e1d2-7b63-4f0a-9c15-2e6a8b0d4f71</item>
+            <item name="Preview" type_name="gh_string" type_code="10">Shaded</item>
+            <item name="PreviewMeshType" type_name="gh_int32" type_code="3">1</item>
+            <item name="PreviewNormal" type_name="gh_drawing_color" type_code="36">
+              <ARGB>100;150;0;0</ARGB>
+            </item>
+            <item name="PreviewSelected" type_name="gh_drawing_color" type_code="36">
+              <ARGB>100;0;150;0</ARGB>
+            </item>
+          </items>
+        </chunk>
+        <chunk name="DefinitionProperties">
+          <items count="3">
+            <item name="Date" type_name="gh_date" type_code="8">639269280000000000</item>
+            <item name="Description" type_name="gh_string" type_code="10">Menger sponge. Native Grasshopper definition for Rhino 8.</item>
+            <item name="Name" type_name="gh_string" type_code="10">menger-sponge.ghx</item>
+          </items>
+          <chunks count="3">
+            <chunk name="Revisions">
+              <items count="1">
+                <item name="RevisionCount" type_name="gh_int32" type_code="3">0</item>
+              </items>
+            </chunk>
+            <chunk name="Projection">
+              <items count="2">
+                <item name="Target" type_name="gh_drawing_point" type_code="30">
+                  <X>240</X>
+                  <Y>130</Y>
+                </item>
+                <item name="Zoom" type_name="gh_single" type_code="5">1.25</item>
+              </items>
+            </chunk>
+            <chunk name="Views">
+              <items count="1">
+                <item name="ViewCount" type_name="gh_int32" type_code="3">0</item>
+              </items>
+            </chunk>
+          </chunks>
+        </chunk>
+        <chunk name="GHALibraries">
+          <items count="1">
+            <item name="Count" type_name="gh_int32" type_code="3">0</item>
+          </items>
+        </chunk>
+        <chunk name="DefinitionObjects">
+          <items count="1">
+            <item name="ObjectCount" type_name="gh_int32" type_code="3">5</item>
+          </items>
+          <chunks count="5">
+            <chunk name="Object" index="0">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">c552a431-af5b-46a9-a8a4-0fcbc27ef596</item>
+                <item name="Name" type_name="gh_string" type_code="10">Group</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="11">
+                    <item name="Border" type_name="gh_int32" type_code="3">1</item>
+                    <item name="Colour" type_name="gh_drawing_color" type_code="36">
+                      <ARGB>150;210;225;245</ARGB>
+                    </item>
+                    <item name="Description" type_name="gh_string" type_code="10">A group of Grasshopper objects</item>
+                    <item name="ID" index="0" type_name="gh_guid" type_code="9">a11c0b21-4d5e-4a6b-8c7d-0e1f2a3b4c5d</item>
+                    <item name="ID" index="1" type_name="gh_guid" type_code="9">b22d1c32-5e6f-4b7c-9d8e-1f2031425364</item>
+                    <item name="ID" index="2" type_name="gh_guid" type_code="9">c33e2d43-6f70-4c8d-ae9f-203142536475</item>
+                    <item name="ID" index="3" type_name="gh_guid" type_code="9">d44f3e54-7081-4d9e-bfa0-314253647586</item>
+                    <item name="ID_Count" type_name="gh_int32" type_code="3">4</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">e5504f65-8192-4eaf-c0b1-425364758697</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Group</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Menger sponge</item>
+                  </items>
+                  <chunks count="1">
+                    <chunk name="Attributes" />
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <chunk name="Object" index="1">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">59e0b89a-e487-49f8-bab8-b5bab16be14c</item>
+                <item name="Name" type_name="gh_string" type_code="10">Panel</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="8">
+                    <item name="Description" type_name="gh_string" type_code="10">A panel for custom notes and text values</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">a11c0b21-4d5e-4a6b-8c7d-0e1f2a3b4c5d</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Panel</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Note</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="ScrollRatio" type_name="gh_double" type_code="6">0</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                    <item name="UserText" type_name="gh_string" type_code="10">Menger sponge
+Iterations 0-3. Size is the outer edge.
+Centered on the world origin.
+Right-click Mesh, then Bake.</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="5">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                          <X>40</X>
+                          <Y>24</Y>
+                          <W>520</W>
+                          <H>96</H>
+                        </item>
+                        <item name="MarginLeft" type_name="gh_int32" type_code="3">8</item>
+                        <item name="MarginRight" type_name="gh_int32" type_code="3">8</item>
+                        <item name="MarginTop" type_name="gh_int32" type_code="3">6</item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+                          <X>40</X>
+                          <Y>24</Y>
+                        </item>
+                      </items>
+                    </chunk>
+                    <chunk name="PanelProperties">
+                      <items count="6">
+                        <item name="Colour" type_name="gh_drawing_color" type_code="36">
+                          <ARGB>255;255;250;210</ARGB>
+                        </item>
+                        <item name="DrawIndices" type_name="gh_bool" type_code="1">false</item>
+                        <item name="DrawPaths" type_name="gh_bool" type_code="1">false</item>
+                        <item name="Multiline" type_name="gh_bool" type_code="1">true</item>
+                        <item name="Stream" type_name="gh_bool" type_code="1">false</item>
+                        <item name="Wrap" type_name="gh_bool" type_code="1">true</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <chunk name="Object" index="2">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Menger sponge iterations, whole steps from 0 to 3.</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">b22d1c32-5e6f-4b7c-9d8e-1f2031425364</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Iterations</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                          <X>40</X>
+                          <Y>148</Y>
+                          <W>200</W>
+                          <H>20</H>
+                        </item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+                          <X>40</X>
+                          <Y>148</Y>
+                        </item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">0</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Max" type_name="gh_double" type_code="6">3</item>
+                        <item name="Min" type_name="gh_double" type_code="6">0</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">2</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <chunk name="Object" index="3">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Outer edge length of the sponge.</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">c33e2d43-6f70-4c8d-ae9f-203142536475</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Size</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                          <X>40</X>
+                          <Y>188</Y>
+                          <W>200</W>
+                          <H>20</H>
+                        </item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+                          <X>40</X>
+                          <Y>188</Y>
+                        </item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">2</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Max" type_name="gh_double" type_code="6">100</item>
+                        <item name="Min" type_name="gh_double" type_code="6">0.1</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">10</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <chunk name="Object" index="4">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">a9a8ebd2-fff5-4c44-a8f5-739736d129ba</item>
+                <item name="Name" type_name="gh_string" type_code="10">C# Script</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="9">
+                    <item name="AdditionalSource" type_name="gh_string" type_code="10">
+  // Menger sponge. A cell stays when, at every ternary digit, fewer than
+  // two of its x/y/z digits are 1 (the open cross through each cube).
+  private Mesh BuildMengerSponge(int iterations, double size)
+  {
+    Mesh sponge = new Mesh();
+    if (size &lt;= 0.0 || iterations &lt; 0)
+      return sponge;
+
+    int cells = 1;
+    for (int level = 0; level &lt; iterations; level++)
+      cells *= 3;
+
+    double cell = size / (double)cells;
+    double origin = -0.5 * size;
+
+    for (int ix = 0; ix &lt; cells; ix++)
+    {
+      for (int iy = 0; iy &lt; cells; iy++)
+      {
+        for (int iz = 0; iz &lt; cells; iz++)
+        {
+          if (!CellKept(ix, iy, iz, iterations))
+            continue;
+
+          double x = origin + ix * cell;
+          double y = origin + iy * cell;
+          double z = origin + iz * cell;
+          AppendExposedFaces(sponge, x, y, z, cell, ix, iy, iz, cells, iterations);
+        }
+      }
+    }
+
+    sponge.Normals.ComputeNormals();
+    sponge.Compact();
+    return sponge;
+  }
+
+  private bool CellKept(int x, int y, int z, int iterations)
+  {
+    for (int level = 0; level &lt; iterations; level++)
+    {
+      int middles = 0;
+      if (x % 3 == 1) middles++;
+      if (y % 3 == 1) middles++;
+      if (z % 3 == 1) middles++;
+      if (middles &gt;= 2)
+        return false;
+      x /= 3;
+      y /= 3;
+      z /= 3;
+    }
+    return true;
+  }
+
+  private void AppendExposedFaces(Mesh sponge, double x, double y, double z, double s, int ix, int iy, int iz, int cells, int iterations)
+  {
+    if (!HasNeighbor(ix + 1, iy, iz, cells, iterations))
+      AddQuad(sponge, x + s, y, z, x + s, y + s, z, x + s, y + s, z + s, x + s, y, z + s);
+    if (!HasNeighbor(ix - 1, iy, iz, cells, iterations))
+      AddQuad(sponge, x, y + s, z, x, y, z, x, y, z + s, x, y + s, z + s);
+    if (!HasNeighbor(ix, iy + 1, iz, cells, iterations))
+      AddQuad(sponge, x + s, y + s, z, x, y + s, z, x, y + s, z + s, x + s, y + s, z + s);
+    if (!HasNeighbor(ix, iy - 1, iz, cells, iterations))
+      AddQuad(sponge, x, y, z, x + s, y, z, x + s, y, z + s, x, y, z + s);
+    if (!HasNeighbor(ix, iy, iz + 1, cells, iterations))
+      AddQuad(sponge, x, y, z + s, x + s, y, z + s, x + s, y + s, z + s, x, y + s, z + s);
+    if (!HasNeighbor(ix, iy, iz - 1, cells, iterations))
+      AddQuad(sponge, x, y, z, x, y + s, z, x + s, y + s, z, x + s, y, z);
+  }
+
+  private bool HasNeighbor(int x, int y, int z, int cells, int iterations)
+  {
+    if (x &lt; 0 || y &lt; 0 || z &lt; 0 || x &gt;= cells || y &gt;= cells || z &gt;= cells)
+      return false;
+    return CellKept(x, y, z, iterations);
+  }
+
+  private void AddQuad(Mesh sponge, double x0, double y0, double z0, double x1, double y1, double z1, double x2, double y2, double z2, double x3, double y3, double z3)
+  {
+    int i = sponge.Vertices.Count;
+    sponge.Vertices.Add(x0, y0, z0);
+    sponge.Vertices.Add(x1, y1, z1);
+    sponge.Vertices.Add(x2, y2, z2);
+    sponge.Vertices.Add(x3, y3, z3);
+    sponge.Faces.AddFace(i, i + 1, i + 2, i + 3);
+  }
+</item>
+                    <item name="Description" type_name="gh_string" type_code="10">Builds a Menger sponge mesh from iteration count and size.</item>
+                    <item name="EditorPosition" type_name="gh_drawing_point" type_code="30">
+                      <X>80</X>
+                      <Y>80</Y>
+                    </item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">d44f3e54-7081-4d9e-bfa0-314253647586</item>
+                    <item name="Name" type_name="gh_string" type_code="10">C# Script</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Menger</item>
+                    <item name="OutParameter" type_name="gh_bool" type_code="1">false</item>
+                    <item name="ReferenceCount" type_name="gh_int32" type_code="3">0</item>
+                    <item name="ScriptSource" type_name="gh_string" type_code="10">
+    int n = System.Convert.ToInt32(iterations);
+    double edge = System.Convert.ToDouble(size);
+    if (n &lt; 0) n = 0;
+    if (n &gt; 3) n = 3;
+    if (edge &lt; 0.0) edge = 0.0;
+
+    mesh = BuildMengerSponge(n, edge);
+</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                          <X>280</X>
+                          <Y>132</Y>
+                          <W>250</W>
+                          <H>84</H>
+                        </item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+                          <X>405</X>
+                          <Y>174</Y>
+                        </item>
+                      </items>
+                    </chunk>
+                    <chunk name="ParameterData">
+                      <items count="5">
+                        <item name="InputCount" type_name="gh_int32" type_code="3">2</item>
+                        <item name="InputId" index="0" type_name="gh_guid" type_code="9">84fa917c-1ed8-4db3-8be1-7bdc4a6495a2</item>
+                        <item name="InputId" index="1" type_name="gh_guid" type_code="9">84fa917c-1ed8-4db3-8be1-7bdc4a6495a2</item>
+                        <item name="OutputCount" type_name="gh_int32" type_code="3">1</item>
+                        <item name="OutputId" index="0" type_name="gh_guid" type_code="9">8ec86459-bf01-4409-baee-174d0d2b13d0</item>
+                      </items>
+                      <chunks count="3">
+                        <chunk name="InputParam" index="0">
+                          <items count="11">
+                            <item name="AllowTreeAccess" type_name="gh_bool" type_code="1">false</item>
+                            <item name="Description" type_name="gh_string" type_code="10">Iteration count from 0 to 3.</item>
+                            <item name="InstanceGuid" type_name="gh_guid" type_code="9">f6615066-92a3-4fb0-81c2-5364758697a8</item>
+                            <item name="Name" type_name="gh_string" type_code="10">iterations</item>
+                            <item name="NickName" type_name="gh_string" type_code="10">Iterations</item>
+                            <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                            <item name="ScriptParamAccess" type_name="gh_int32" type_code="3">0</item>
+                            <item name="ShowTypeHints" type_name="gh_bool" type_code="1">true</item>
+                            <item name="Source" index="0" type_name="gh_guid" type_code="9">b22d1c32-5e6f-4b7c-9d8e-1f2031425364</item>
+                            <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                            <item name="TypeHintID" type_name="gh_guid" type_code="9">48d01794-d3d8-4aef-990e-127168822244</item>
+                          </items>
+                          <chunks count="1">
+                            <chunk name="Attributes">
+                              <items count="2">
+                                <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                                  <X>284</X>
+                                  <Y>148</Y>
+                                  <W>108</W>
+                                  <H>20</H>
+                                </item>
+                                <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+                                  <X>338.0</X>
+                                  <Y>158.0</Y>
+                                </item>
+                              </items>
+                            </chunk>
+                          </chunks>
+                        </chunk>
+                        <chunk name="InputParam" index="1">
+                          <items count="11">
+                            <item name="AllowTreeAccess" type_name="gh_bool" type_code="1">false</item>
+                            <item name="Description" type_name="gh_string" type_code="10">Outer edge length.</item>
+                            <item name="InstanceGuid" type_name="gh_guid" type_code="9">07261677-a3b4-40c1-92d3-64758697a8b9</item>
+                            <item name="Name" type_name="gh_string" type_code="10">size</item>
+                            <item name="NickName" type_name="gh_string" type_code="10">Size</item>
+                            <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                            <item name="ScriptParamAccess" type_name="gh_int32" type_code="3">0</item>
+                            <item name="ShowTypeHints" type_name="gh_bool" type_code="1">true</item>
+                            <item name="Source" index="0" type_name="gh_guid" type_code="9">c33e2d43-6f70-4c8d-ae9f-203142536475</item>
+                            <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                            <item name="TypeHintID" type_name="gh_guid" type_code="9">9d51e32e-c038-4352-9554-f4137ca91b9a</item>
+                          </items>
+                          <chunks count="1">
+                            <chunk name="Attributes">
+                              <items count="2">
+                                <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                                  <X>284</X>
+                                  <Y>188</Y>
+                                  <W>108</W>
+                                  <H>20</H>
+                                </item>
+                                <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+                                  <X>338.0</X>
+                                  <Y>198.0</Y>
+                                </item>
+                              </items>
+                            </chunk>
+                          </chunks>
+                        </chunk>
+                        <chunk name="OutputParam" index="0">
+                          <items count="6">
+                            <item name="Description" type_name="gh_string" type_code="10">Menger sponge mesh. Right-click and choose Bake.</item>
+                            <item name="InstanceGuid" type_name="gh_guid" type_code="9">18372788-b4c5-41d2-a3e4-758697a8b9c0</item>
+                            <item name="Name" type_name="gh_string" type_code="10">mesh</item>
+                            <item name="NickName" type_name="gh_string" type_code="10">Mesh</item>
+                            <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                            <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                          </items>
+                          <chunks count="1">
+                            <chunk name="Attributes">
+                              <items count="2">
+                                <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+                                  <X>484</X>
+                                  <Y>148</Y>
+                                  <W>42</W>
+                                  <H>68</H>
+                                </item>
+                                <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+                                  <X>505</X>
+                                  <Y>182</Y>
+                                </item>
+                              </items>
+                            </chunk>
+                          </chunks>
+                        </chunk>
+                      </chunks>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+          </chunks>
+        </chunk>
+      </chunks>
+    </chunk>
+  </chunks>
+</Archive>
