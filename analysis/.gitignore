@@ -1,0 +1,5 @@
+data/
+derivatives/
+__pycache__/
+*.pyc
+*.part
