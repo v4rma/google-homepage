@@ -1,0 +1,10 @@
+numpy==2.5.4
+scipy==1.18.1
+scikit-learn==1.9.1
+python-osc==1.10.2
+fastapi==0.143.2
+uvicorn[standard]==0.54.0
+websockets==17.2
+pytest==9.1.1
+# optional, only for --source lsl (needs liblsl on the machine):
+# pylsl==1.18.6
