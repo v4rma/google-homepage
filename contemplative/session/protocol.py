@@ -41,5 +41,21 @@ class Protocol:
     def calibration_s(self) -> float:
         return 2 * self.calib_block_s * self.calib_repeats
 
+    def warnings(self, window_s: float | None = None) -> list[str]:
+        """Human-readable problems with these timings (too short to score, morph too fast)."""
+        out = []
+        need = self.min_valid_segments + 2.0
+        if self.baseline_s - self.discard_s < need:
+            out.append(f"baseline {self.baseline_s:.0f} s minus discard {self.discard_s:.0f} s leaves < {need:.0f} s to score; trials will be invalid (use --baseline >= {self.discard_s + need:.0f})")
+        if self.stimulus_s - self.discard_s < need:
+            out.append(f"stimulus {self.stimulus_s:.0f} s minus discard {self.discard_s:.0f} s leaves < {need:.0f} s to score (use --stimulus >= {self.discard_s + need:.0f})")
+        if self.calib_block_s - self.calib_discard_s < 20.0:
+            out.append(f"calibration blocks of {self.calib_block_s:.0f} s are too short for stable statistics (use --calib-block >= 60)")
+        if window_s is not None and window_s > max(self.baseline_s, self.stimulus_s) - self.discard_s:
+            out.append(f"scoring window {window_s:.0f} s is longer than the scored part of a phase; it will be shortened")
+        if self.morph_s < 10.0:
+            out.append("morph shorter than 10 s is not allowed; the visuals page clamps to 10 s")
+        return out
+
     def to_dict(self) -> dict:
         return asdict(self)

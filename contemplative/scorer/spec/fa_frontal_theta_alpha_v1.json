@@ -11,7 +11,7 @@
       "per_channel_peak_to_peak_max_uv": 150,
       "flat_std_min_uv": 0.5,
       "emg_band_hz": [30, 60],
-      "emg_log10_power_max": 1.9,
+      "emg_log10_power_max": 0.8,
       "min_fraction_segments_kept_per_channel": 0.5
     },
     "group_aggregation": "mean PSD across the group's channels, then features"

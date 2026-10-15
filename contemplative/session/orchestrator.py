@@ -205,6 +205,10 @@ class Orchestrator:
                 self.trial = k
                 await self._run_trial(k)
             return self._finish()
+        except Exception as e:
+            self.log(f"session error: {e!r}")
+            self._finish(error=repr(e))
+            raise
         finally:
             self.running = False
 
@@ -276,9 +280,12 @@ class Orchestrator:
                 res = await self._phase(cond, P.calib_block_s, cond, None, discard=P.calib_discard_s)
                 # sliding spec windows over the scored part of the block
                 t0, t1 = res["t0"] + P.calib_discard_s, res["t1"]
-                win = min(spec.window_s, t1 - t0)
+                # short (test) blocks: shrink the window and densify the hop so a
+                # block still yields >= 5 windows; the default protocol is unaffected
+                win = min(spec.window_s, 0.6 * (t1 - t0))
+                hop = min(spec.hop_s, max(1.0, (t1 - t0 - win) / 4.0))
                 n = 0
-                for te in np.arange(t0 + win, t1 + 1e-6, spec.hop_s):
+                for te in np.arange(t0 + win, t1 + 1e-6, hop):
                     wf = self.scorer.interval_features(te - win, te)
                     if wf is not None and wf.valid:
                         fitter.add(cond, wf.features)
@@ -360,8 +367,8 @@ class Orchestrator:
         with open(self.session_dir / "session.json", "w") as f:
             json.dump(info, f, indent=2)
 
-    def _finish(self) -> dict[str, Any]:
-        self.phase = "idle"
+    def _finish(self, error: str | None = None) -> dict[str, Any]:
+        self.phase = "error" if error else "idle"
         self.finished = True
         self.source.set_stimulus(None, "idle")
         self._emit({"type": "visuals", "mode": "idle", "params": None, "morph_s": self.protocol.morph_s, "t": self.clock.now()})
@@ -377,10 +384,11 @@ class Orchestrator:
             "length_scales": self.optimizer.length_scales(),
             "scorer": {"valid": self.scorer.n_valid, "rejected": self.scorer.n_rejected},
             "calibration": self.calibration_info,
+            "error": error,
         }
         with open(self.session_dir / "summary.json", "w") as f:
             json.dump(summary, f, indent=2, default=_json_default)
-        self.log("session finished")
+        self.log("session finished" if not error else f"session aborted: {error}")
         self.recorder.close()
         self._scores_f.close()
         self._trials_f.close()
