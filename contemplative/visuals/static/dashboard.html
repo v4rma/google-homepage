@@ -29,7 +29,15 @@
   th:first-child, td:first-child { text-align:left; }
   .fits { display:flex; gap:8px; }
   .fit { flex:1; text-align:center; padding:6px 4px; border-radius:6px; background:#22262d; font-size:12px; }
-  .fit.good { background:#244b2a; } .fit.mid { background:#5a4a1e; } .fit.bad { background:#5a2a24; }
+  .fit.good { background:#244b2a; } .fit.mid { background:#5a4a1e; } .fit.bad { background:#5a2a24; } .fit.unknown { background:#2a2e36; color:var(--muted); }
+  .diag { padding:8px 10px; border-radius:6px; margin-bottom:8px; font-size:13px; }
+  .diag.ok { background:#1f3a24; } .diag.warn { background:#4a3d18; } .diag.fatal { background:#4d231e; }
+  .diag .advice { color:var(--fg); opacity:.85; margin-top:4px; font-size:12.5px; }
+  .cols { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px; }
+  .mono { font:12px/1.4 ui-monospace, monospace; }
+  .progress { height:8px; background:#22262d; border-radius:4px; overflow:hidden; margin-top:4px; }
+  .progress i { display:block; height:100%; background:var(--good); }
+  @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } }
   .bar { height:6px; background:#22262d; border-radius:3px; overflow:hidden; margin-top:4px; }
   .bar i { display:block; height:100%; background:var(--accent); }
   #log { font:12px/1.4 ui-monospace, monospace; max-height:220px; overflow:auto; white-space:pre-wrap; color:#b7bcc4; }
@@ -47,6 +55,7 @@
   <span id="session" class="muted"></span>
   <span class="spacer"></span>
   <a href="/" target="_blank">open visuals page</a>
+  <button id="btnCheck" title="listen for 20 s and report what arrives (no session)">Check stream</button>
   <button id="btnStart" class="primary">Start session</button>
   <button id="btnStop">Stop</button>
   <button id="btnBetter" title="this stimulus felt better than the previous one">Better than last</button>
@@ -62,6 +71,7 @@
       <div><div class="muted">score</div><div class="big" id="score">-</div></div>
     </div>
     <div class="kv" id="params" style="margin-top:10px"></div>
+    <div id="calprog" style="margin-top:10px"></div>
     <div class="muted" id="message" style="margin-top:8px"></div>
   </section>
   <section class="panel">
@@ -75,6 +85,15 @@
     <div class="kv" id="opt"></div>
     <div class="muted" style="margin-top:8px">GP current best</div>
     <div class="kv" id="best"></div>
+  </section>
+  <section class="panel full" id="streamPanel">
+    <h2>Stream check <span id="streamStatus" class="tag"></span></h2>
+    <div id="streamDiag" class="diag"></div>
+    <div class="cols">
+      <div><div class="muted">packets per address</div><div class="kv mono" id="streamAddr"></div></div>
+      <div><div class="muted">raw EEG</div><div class="kv" id="streamEeg"></div></div>
+      <div><div class="muted">segments &amp; rejections</div><div class="kv" id="streamSeg"></div></div>
+    </div>
   </section>
   <section class="panel full">
     <h2>Live score (last 10 min)</h2>

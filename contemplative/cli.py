@@ -4,6 +4,8 @@
     python -m contemplative calibrate --source ...                            calibration only
     python -m contemplative simulate  [--trials 20 --seed 0 --sessions 1]     headless loop + assertion
     python -m contemplative check-visuals                                     offline morph-schedule spectrum check
+    python -m contemplative check-stream  --source osc [--seconds 20]         what arrives, in what units, why segments are rejected
+    python -m contemplative fake-muse     [--target 127.0.0.1:5000]           send a synthetic Mind Monitor OSC stream (with optional defects)
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import time
 from pathlib import Path
 
 from .ingest import make_source
+from .ingest.synthetic import DEFECTS
 from .optimizer import GPOptimizer
 from .scorer import Calibration, FocusScorer, load_spec
 from .session import Orchestrator, Protocol, RealClock
@@ -29,6 +32,8 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--replay-loop", action="store_true")
     p.add_argument("--synthetic-profile", choices=["novice", "expert"], default="novice")
     p.add_argument("--synthetic-seed", type=int, default=0)
+    p.add_argument("--synthetic-defect", action="append", default=[], metavar="DEFECT", help="imitate a stream defect with the synthetic source (repeatable): " + ", ".join(sorted(DEFECTS)))
+    p.add_argument("--fit-tolerant", action="store_true", help="dry-electrode mode: accept medium horseshoe fit on TP9/TP10 and raise the peak-to-peak threshold to 300 uV")
     p.add_argument("--wearer", default="default")
     p.add_argument("--data-dir", default="data", help="per-wearer calibration, optimizer state and sessions live here")
     p.add_argument("--spec", help="feature spec JSON (default: shipped fa_on_task_score.json; fallback fa_frontal_theta_alpha_v1.json)")
@@ -77,7 +82,16 @@ def build_source(a: argparse.Namespace, clock):
         if not a.replay:
             sys.exit("--replay PATH is required with --source replay")
         return make_source("replay", path=a.replay, loop=a.replay_loop)
-    return make_source("synthetic", seed=a.synthetic_seed, profile=a.synthetic_profile)
+    return make_source("synthetic", seed=a.synthetic_seed, profile=a.synthetic_profile, defects=a.synthetic_defect)
+
+
+def build_spec(a: argparse.Namespace):
+    spec = load_spec(a.spec, profile="novice" if getattr(a, "profile", "novice") == "auto" else getattr(a, "profile", "novice"))
+    if getattr(a, "window", None):
+        spec.window_s = float(a.window)
+    if getattr(a, "fit_tolerant", False):
+        spec.apply_tolerant()
+    return spec
 
 
 def build_orchestrator(a: argparse.Namespace, protocol: Protocol) -> Orchestrator:
@@ -85,9 +99,7 @@ def build_orchestrator(a: argparse.Namespace, protocol: Protocol) -> Orchestrato
     wearer_dir = Path(a.data_dir) / a.wearer
     session_dir = wearer_dir / "sessions" / time.strftime("%Y%m%d-%H%M%S")
     cal_path = wearer_dir / "calibration.json"
-    spec = load_spec(a.spec, profile="novice" if a.profile == "auto" else a.profile)
-    if a.window:
-        spec.window_s = float(a.window)
+    spec = build_spec(a)
     scorer = FocusScorer(spec)
     if cal_path.exists() and not a.recalibrate:
         cal = Calibration.load(cal_path)
@@ -128,11 +140,61 @@ def cmd_run(a: argparse.Namespace, calibrate_only: bool = False) -> None:
         osc = OSCBroadcaster(host or "127.0.0.1", int(port or 10000))
     for w in protocol.warnings(a.window):
         print(f"[protocol] warning: {w}", flush=True)
-    server = SessionServer(lambda: build_orchestrator(a, protocol), osc=osc, autostart=a.autostart or calibrate_only)
+    clock = RealClock()
+    server = SessionServer(
+        lambda: build_orchestrator(a, protocol),
+        osc=osc,
+        autostart=a.autostart or calibrate_only,
+        make_source=lambda: build_source(a, clock),
+        make_spec=lambda: build_spec(a),
+        source_listen=f"{a.osc_host}:{a.osc_port}" if a.source == "osc" else a.source,
+    )
     print(f"visuals:   http://{a.host}:{a.port}/\ndashboard: http://{a.host}:{a.port}/dashboard", flush=True)
     if a.source == "osc":
         print(f"Mind Monitor: set OSC Stream Target to this machine's IP, port {a.osc_port}", flush=True)
     uvicorn.run(server.app, host=a.host, port=a.port, log_level="warning")
+
+
+def cmd_check_stream(a: argparse.Namespace) -> None:
+    from .ingest.stream_check import run_stream_check
+
+    spec = build_spec(a)
+    clock = RealClock()
+    source = build_source(a, clock)
+    listen = f"{a.osc_host}:{a.osc_port}" if a.source == "osc" else a.source
+    print(f"listening for {a.seconds:.0f} s ({listen}); spec {spec.name}{' (fit-tolerant)' if spec.tolerant else ''}", flush=True)
+    if a.source == "osc":
+        print(f"Mind Monitor: OSC Stream Target IP = this machine's LAN IP, port {a.osc_port}; tap the stream icon.", flush=True)
+
+    def progress(st, elapsed):
+        d = st.diagnose()
+        e = st.eeg_rate()
+        print(f"  {elapsed:4.0f} s  packets {sum(st.kinds.values()):6d}  eeg {st.n_eeg:6d} ({0 if e is None else e:5.1f} Hz)  horseshoe {st.horseshoe_last}  segments {st.n_segments} kept {[round(k, 2) for k in st.kept_fraction()]}  [{d['severity']}] {d['code']}", flush=True)
+
+    try:
+        stats = run_stream_check(source, spec, seconds=a.seconds, listen=listen, progress=progress, clock=clock.now)
+    except OSError as e:
+        sys.exit(f"could not open {listen}: {e}. Another program (or a previous run) holds the port; close it or use --osc-port.")
+    print()
+    print(stats.format_report())
+    if a.json:
+        print(json.dumps(stats.summary(), indent=1, default=str))
+    sys.exit(0 if stats.diagnose()["severity"] != "fatal" else 1)
+
+
+def cmd_fake_muse(a: argparse.Namespace) -> None:
+    from .ingest.osc_fake import FakeMindMonitor
+    from .ingest.synthetic import SyntheticSource
+
+    host, _, port = a.target.partition(":")
+    src = SyntheticSource(seed=a.synthetic_seed, profile=a.synthetic_profile, defects=a.synthetic_defect)
+    fake = FakeMindMonitor(src, host or "127.0.0.1", int(port or 5000))
+    print(f"sending a synthetic Mind Monitor stream to {host or '127.0.0.1'}:{port or 5000}" + (f" with defects {a.synthetic_defect}" if a.synthetic_defect else "") + (f" for {a.seconds:.0f} s" if a.seconds else " until Ctrl-C"), flush=True)
+    try:
+        fake.run(a.seconds)
+    except KeyboardInterrupt:
+        pass
+    print(f"sent {fake.n_sent} OSC messages")
 
 
 def cmd_simulate(a: argparse.Namespace) -> None:
@@ -192,6 +254,16 @@ def main(argv=None) -> None:
     p_sim.set_defaults(trials=20)
     p_chk = sub.add_parser("check-visuals", help="spectrum check of the backend's parameter/morph schedule (no 3-30 Hz content)")
     p_chk.add_argument("--morph", type=float, default=10.0)
+    p_cs = sub.add_parser("check-stream", help="listen for ~20 s and report what arrives, in what units, and why segments are rejected; run this before a session")
+    _common(p_cs)
+    p_cs.add_argument("--seconds", type=float, default=20.0)
+    p_cs.add_argument("--json", action="store_true", help="also print the full summary as JSON")
+    p_fm = sub.add_parser("fake-muse", help="send a synthetic Mind Monitor OSC stream (to test the network path and the diagnostics)")
+    p_fm.add_argument("--target", default="127.0.0.1:5000", help="host:port the OSC stream is sent to")
+    p_fm.add_argument("--seconds", type=float, default=None, help="stop after this many seconds (default: until Ctrl-C)")
+    p_fm.add_argument("--synthetic-profile", choices=["novice", "expert"], default="novice")
+    p_fm.add_argument("--synthetic-seed", type=int, default=0)
+    p_fm.add_argument("--synthetic-defect", action="append", default=[], metavar="DEFECT")
 
     a = ap.parse_args(argv)
     if a.cmd == "run":
@@ -202,6 +274,10 @@ def main(argv=None) -> None:
         cmd_simulate(a)
     elif a.cmd == "check-visuals":
         cmd_check_visuals(a)
+    elif a.cmd == "check-stream":
+        cmd_check_stream(a)
+    elif a.cmd == "fake-muse":
+        cmd_fake_muse(a)
 
 
 if __name__ == "__main__":

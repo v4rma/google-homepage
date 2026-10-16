@@ -37,6 +37,7 @@ import numpy as np
 
 from ..ingest.base import EEGSource
 from ..ingest.recorder import SessionRecorder
+from ..ingest.stream_check import StreamStats
 from ..optimizer import GPOptimizer
 from ..scorer import CalibrationFitter, FocusScorer, ScoreSample
 from ..visuals.params import AXES, StimulusParams, to_physical
@@ -44,6 +45,10 @@ from .clock import RealClock
 from .protocol import Protocol
 
 Listener = Callable[[dict[str, Any]], None]
+
+
+class SessionAbort(Exception):
+    """The session cannot continue for a diagnosed reason (message is user-facing)."""
 
 
 class Orchestrator:
@@ -76,6 +81,9 @@ class Orchestrator:
         self.session_id = self.session_dir.name
 
         self.listeners: list[Listener] = []
+        listen = source.describe().get("listen", "")
+        self.stats = StreamStats(scorer.spec, listen=listen, buffer=scorer.buffer)  # running diagnostics for abort messages / dashboard
+        self.calibration_progress: dict[str, Any] | None = None
         self.recorder = SessionRecorder(self.session_dir)
         self._scores_f = open(self.session_dir / "scores.csv", "w", newline="")
         self._scores = csv.writer(self._scores_f)
@@ -134,7 +142,10 @@ class Orchestrator:
             "proposal_tag": self.proposal_tag,
             "last_score": (self.last_score.score if self.last_score and self.last_score.valid else None),
             "fit": self.scorer.fit,
+            "fit_known": self.scorer.buffer.fit_known,
             "quality": self.scorer.last_quality,
+            "stream": self.stats.summary() if self.phase in ("settle", "error") or self.phase.startswith("calibration") else {"diagnosis": self.stats.diagnose(), "eeg": {"rate_hz": None if self.stats.eeg_rate() is None else round(self.stats.eeg_rate(), 1)}},
+            "calibration_progress": self.calibration_progress,
             "spec": self.scorer.spec.describe(),
             "calibrated": self.scorer.calibration is not None,
             "calibration": self.calibration_info,
@@ -188,8 +199,7 @@ class Orchestrator:
         self._write_session_json()
         try:
             await self._set_visuals("baseline", None)
-            self.log("settling: waiting for the EEG stream")
-            await self._phase("settle", self.protocol.settle_s, "baseline", None)
+            await self._settle()
             if self.stop_requested:
                 return self._finish()
             if self.scorer.calibration is not None and not self.force_calibration:
@@ -205,12 +215,45 @@ class Orchestrator:
                 self.trial = k
                 await self._run_trial(k)
             return self._finish()
+        except SessionAbort as e:
+            self.log(f"session aborted: {e}")
+            return self._finish(error=str(e))
         except Exception as e:
             self.log(f"session error: {e!r}")
             self._finish(error=repr(e))
             raise
         finally:
             self.running = False
+
+    async def _settle(self) -> None:
+        """Wait for the stream: at least ``settle_s``, and until raw EEG has arrived
+        (up to ``settle_max_s``); abort with the stream diagnosis if it never does."""
+        P = self.protocol
+        self.log("settling: waiting for the EEG stream")
+        await self._phase("settle", P.settle_s, "baseline", None)
+        waited = P.settle_s
+        while self.stats.n_eeg == 0 and waited < P.settle_max_s and not self.stop_requested:
+            d = self.stats.diagnose()
+            self.log(f"no raw EEG yet ({d['cause']}); waiting up to {P.settle_max_s - waited:.0f} s more")
+            await self._phase("settle", min(10.0, P.settle_max_s - waited), "baseline", None)
+            waited += 10.0
+        if self.stats.n_eeg == 0 and not self.stop_requested:
+            raise SessionAbort(self._diagnostic_message("no raw EEG received during settle"))
+        d = self.stats.diagnose()
+        if d["code"] == "bands_only":
+            raise SessionAbort(self._diagnostic_message("band powers only"))
+        if d["severity"] != "ok":
+            self.log(f"stream warning: {d['cause']}" + (f" -> {d['advice']}" if d["advice"] else ""))
+
+    def _diagnostic_message(self, context: str) -> str:
+        d = self.stats.diagnose()
+        s = self.stats.summary()
+        e = s["eeg"]
+        counts = f"packets {s['n_packets']}, raw EEG samples {e['n']} ({e['rate_hz'] or 0} Hz), horseshoe {s['horseshoe']['n'] if s['horseshoe'] else 'none'}, band msgs {sum(s['bands']['n'].values())}, segments {s['segments']['n']} (kept {s['segments']['kept_fraction']}), rejections {s['segments']['reasons'] or 'none'}"
+        msg = f"{context}. Most likely cause: {d['cause']}."
+        if d["advice"]:
+            msg += f" {d['advice']}"
+        return f"{msg} [{counts}]"
 
     async def _run_trial(self, k: int) -> None:
         P = self.protocol
@@ -269,29 +312,54 @@ class Orchestrator:
         self._emit(self.snapshot())
 
     async def _calibrate(self) -> None:
+        """Fixation / breath blocks, repeated.  Fail-soft: a block that yields fewer
+        than ``calib_min_windows`` valid windows is extended (re-run, windows
+        accumulate) up to ``calib_max_extensions`` times before the session aborts
+        with the stream diagnosis; a block with no EEG at all aborts at once."""
         P = self.protocol
         spec = self.scorer.spec
         fitter = CalibrationFitter(spec, self.wearer, profile=self.profile)
         self.log("calibration: eyes open, soft gaze on the field; then breath focus")
-        for rep in range(P.calib_repeats):
-            for cond in ("calibration_fixation", "calibration_breath"):
+        blocks = [(rep, cond) for rep in range(P.calib_repeats) for cond in ("calibration_fixation", "calibration_breath")]
+        for b, (rep, cond) in enumerate(blocks):
+            got = 0
+            for ext in range(P.calib_max_extensions + 1):
                 if self.stop_requested:
                     return
-                res = await self._phase(cond, P.calib_block_s, cond, None, discard=P.calib_discard_s)
-                # sliding spec windows over the scored part of the block
-                t0, t1 = res["t0"] + P.calib_discard_s, res["t1"]
-                # short (test) blocks: shrink the window and densify the hop so a
-                # block still yields >= 5 windows; the default protocol is unaffected
-                win = min(spec.window_s, 0.6 * (t1 - t0))
-                hop = min(spec.hop_s, max(1.0, (t1 - t0 - win) / 4.0))
+                n_eeg_before = self.stats.n_eeg
+                self.calibration_progress = {"block": b + 1, "of": len(blocks), "condition": cond, "extension": ext, "valid_windows": 0, "needed": P.calib_min_windows, "block_s": P.calib_block_s}
+                t_block0 = self.clock.now()
+
+                last_count = [t_block0]
+
+                def live(now: float, _t0=t_block0) -> None:
+                    self.calibration_progress["elapsed_s"] = round(now - _t0, 1)
+                    if now - last_count[0] >= max(spec.hop_s, 2.0):
+                        last_count[0] = now
+                        self.calibration_progress["valid_windows"] = got + self._count_windows(_t0 + P.calib_discard_s, now)
+
+                res = await self._phase(cond, P.calib_block_s, cond, None, discard=P.calib_discard_s, on_tick=live)
                 n = 0
-                for te in np.arange(t0 + win, t1 + 1e-6, hop):
-                    wf = self.scorer.interval_features(te - win, te)
-                    if wf is not None and wf.valid:
-                        fitter.add(cond, wf.features)
-                        n += 1
-                self.log(f"calibration block {rep + 1}/{P.calib_repeats} {cond}: {n} valid windows")
-        cal = fitter.fit()
+                for wf in self._block_windows(res["t0"] + P.calib_discard_s, res["t1"]):
+                    fitter.add(cond, wf.features)
+                    n += 1
+                got += n
+                self.calibration_progress["valid_windows"] = got
+                self.log(f"calibration block {b + 1}/{len(blocks)} {cond}" + (f" (extension {ext})" if ext else "") + f": {n} valid windows ({got} total, {P.calib_min_windows} needed)")
+                if got >= P.calib_min_windows:
+                    break
+                if self.stats.n_eeg == n_eeg_before:
+                    raise SessionAbort(self._diagnostic_message(f"no raw EEG received during calibration block {b + 1} ({cond})"))
+                d = self.stats.diagnose()
+                if ext < P.calib_max_extensions:
+                    self.log(f"too few valid windows ({got}/{P.calib_min_windows}); {d['cause']}. Extending the block by {P.calib_block_s:.0f} s" + (f" - {d['advice']}" if d["advice"] else ""))
+                else:
+                    raise SessionAbort(self._diagnostic_message(f"calibration block {b + 1} ({cond}) gave {got}/{P.calib_min_windows} valid windows after {P.calib_max_extensions} extensions"))
+        self.calibration_progress = None
+        try:
+            cal = fitter.fit()
+        except ValueError as e:
+            raise SessionAbort(self._diagnostic_message(str(e)))
         cal.save(self.calibration_path)
         shutil.copy(self.calibration_path, self.session_dir / "calibration.json")
         self.scorer.set_calibration(cal)
@@ -302,6 +370,23 @@ class Orchestrator:
             self.log("  " + n)
         self._emit(self.snapshot())
 
+    def _block_windows(self, t0: float, t1: float):
+        """Valid sliding spec windows over (t0, t1].  Short (test) blocks shrink the
+        window to 60 % of the block and densify the hop so >= 5 windows can exist;
+        the default protocol (120-s blocks, 60-s window, 5-s hop) is unaffected."""
+        spec = self.scorer.spec
+        if t1 - t0 < 4.0:
+            return
+        win = min(spec.window_s, 0.6 * (t1 - t0))
+        hop = min(spec.hop_s, max(1.0, (t1 - t0 - win) / 4.0))
+        for te in np.arange(t0 + win, t1 + 1e-6, hop):
+            wf = self.scorer.interval_features(te - win, te)
+            if wf is not None and wf.valid:
+                yield wf
+
+    def _count_windows(self, t0: float, t1: float) -> int:
+        return sum(1 for _ in self._block_windows(t0, t1))
+
     async def _phase(
         self,
         phase: str,
@@ -309,6 +394,7 @@ class Orchestrator:
         mode: str,
         params: StimulusParams | None,
         discard: float | None = None,
+        on_tick: Callable[[float], None] | None = None,
     ) -> dict[str, Any]:
         """Run one phase. Returns the display scores after the discard window and one window score over that part."""
         P = self.protocol
@@ -325,12 +411,16 @@ class Orchestrator:
             packets = self.source.read()
             if packets:
                 self.recorder.write_packets(packets)
-                for s in self.scorer.push(packets):
+                scored = self.scorer.push(packets)
+                self.stats.feed(packets, segments=self.scorer.last_segments)
+                for s in scored:
                     self._on_score(s)
                     if self.phase_t0 + discard <= s.t <= self.phase_t1:
                         display.append(s.score if s.valid else None)
             if now - self._state_last_emit >= 1.0:
                 self._state_last_emit = now
+                if on_tick:
+                    on_tick(now)
                 self._emit(self.snapshot())
             await self.clock.sleep(P.loop_dt)
         t_end = self.clock.now()
@@ -345,7 +435,7 @@ class Orchestrator:
         if len(self.recent_scores) > 600:
             self.recent_scores = self.recent_scores[-600:]
         self._scores.writerow(
-            [f"{s.t:.3f}", self.phase, self.trial, "" if s.score is None else f"{s.score:.4f}", "" if s.raw is None else f"{s.raw:.4f}", int(s.valid), ";".join(s.reasons), ";".join(str(v) for v in s.fit), json.dumps(_clean(s.features))]
+            [f"{s.t:.3f}", self.phase, self.trial, "" if s.score is None else f"{s.score:.4f}", "" if s.raw is None else f"{s.raw:.4f}", int(s.valid), ";".join(s.reasons), "" if s.fit is None else ";".join(str(v) for v in s.fit), json.dumps(_clean(s.features))]
         )
         self._emit({"type": "score", "t": s.t, "score": s.score, "valid": s.valid, "reasons": s.reasons, "fit": s.fit, "quality": s.quality, "phase": self.phase, "trial": self.trial})
 

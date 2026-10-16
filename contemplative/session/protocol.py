@@ -8,9 +8,12 @@ from dataclasses import asdict, dataclass, replace
 @dataclass(frozen=True)
 class Protocol:
     settle_s: float = 10.0  # wait for the stream before anything is scored
+    settle_max_s: float = 45.0  # keep waiting for raw EEG this long before aborting with a diagnosis
     calib_block_s: float = 120.0  # eyes-open fixation 2 min, breath focus 2 min ...
     calib_repeats: int = 2  # ... repeated
     calib_discard_s: float = 15.0
+    calib_min_windows: int = 5  # valid windows a block must yield ...
+    calib_max_extensions: int = 2  # ... or it is re-run this many times before the session aborts
     baseline_s: float = 60.0  # uniform field, 30-60 s (45 s scored)
     stimulus_s: float = 75.0  # 60-90 s (60 s scored)
     discard_s: float = 15.0  # first 15 s of every scored phase dropped (orienting + morph)
@@ -25,6 +28,7 @@ class Protocol:
         return replace(
             self,
             settle_s=self.settle_s * factor,
+            settle_max_s=self.settle_max_s * factor,
             calib_block_s=self.calib_block_s * factor,
             calib_discard_s=self.calib_discard_s * factor,
             baseline_s=self.baseline_s * factor,
