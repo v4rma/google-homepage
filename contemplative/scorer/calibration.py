@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import math
 import time
+import warnings
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -133,15 +134,19 @@ class CalibrationFitter:
         F = np.array([[e.get(n, np.nan) for n in names] for e in self.fixation], dtype=float)
         B = np.array([[e.get(n, np.nan) for n in names] for e in self.breath], dtype=float)
         A = np.vstack([F, B])
-        mean = np.nanmean(A, axis=0)
-        std = np.nanstd(A, axis=0, ddof=1)
-        # floor the scale so a feature that barely moved in calibration (e.g. a
-        # quantised alpha frequency) cannot explode into huge z-scores later
-        floor = np.array([MIN_STD.get(fd.type, MIN_STD["default"]) for fd in spec.features])
-        std = np.where(np.isfinite(std), np.maximum(std, floor), floor)
-        pooled = np.sqrt((np.nanvar(F, axis=0, ddof=1) + np.nanvar(B, axis=0, ddof=1)) / 2) + 1e-9
-        d = (np.nanmean(B, axis=0) - np.nanmean(F, axis=0)) / pooled
-        d = np.where(np.isfinite(d), d, 0.0)
+        # a group that was unusable throughout calibration (e.g. temporal in frontal-only
+        # fallback) gives all-NaN columns; those features get the floor scale and d = 0
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            mean = np.nanmean(A, axis=0)
+            std = np.nanstd(A, axis=0, ddof=1)
+            # floor the scale so a feature that barely moved in calibration (e.g. a
+            # quantised alpha frequency) cannot explode into huge z-scores later
+            floor = np.array([MIN_STD.get(fd.type, MIN_STD["default"]) for fd in spec.features])
+            std = np.where(np.isfinite(std), np.maximum(std, floor), floor)
+            pooled = np.sqrt((np.nanvar(F, axis=0, ddof=1) + np.nanvar(B, axis=0, ddof=1)) / 2) + 1e-9
+            d = (np.nanmean(B, axis=0) - np.nanmean(F, axis=0)) / pooled
+            d = np.where(np.isfinite(d), d, 0.0)
         notes: list[str] = []
         sign = np.zeros(len(names))
         weights: dict[str, float] = {}

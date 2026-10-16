@@ -28,6 +28,7 @@ the optimizer; tests read it from ``SyntheticSource.ground_truth``.
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -41,6 +42,21 @@ _PINK_B = np.array([0.049922035, -0.095993537, 0.050612699, -0.004408786])
 _PINK_A = np.array([1.0, -2.494956002, 2.017265875, -0.522189400])
 
 PROFILE_ALPHA_GAIN = {"novice": -0.45, "expert": 0.6}
+
+# Stream defects the synthetic source can imitate (``defects=`` / ``--synthetic-defect``),
+# used to exercise the diagnostics and the fail-soft paths without hardware.
+DEFECTS = {
+    "silent": "emit nothing at all (wrong OSC target / firewall)",
+    "bands_only": "no raw /muse/eeg, only band-power messages (Mind Monitor raw streaming off)",
+    "no_horseshoe": "never send horseshoe fit values",
+    "no_offset": "raw EEG centred on 0 uV instead of Mind Monitor's ~800",
+    "volts": "raw EEG in volts (1e-6 scale) instead of microvolts",
+    "medium_fit": "horseshoe 2 (medium) on every channel, signal otherwise clean",
+    "bad_fit": "temporal electrodes off (horseshoe 4 + noise on TP9/TP10)",
+    "all_bad_fit": "every electrode off (horseshoe 4 + noise everywhere)",
+    "dry_ptp": "slow electrode drift giving 150-300 uV peak-to-peak on all channels",
+    "low_rate": "only every other sample arrives (~128 Hz)",
+}
 
 
 @dataclass
@@ -115,8 +131,18 @@ class SyntheticSource(EEGSource):
         jaw_rate_hz: float = 1 / 40,
         bad_fit_rate_hz: float = 1 / 60,
         fs: float = FS,
+        defects: set[str] | list[str] | None = None,
+        defect_until_s: float | None = None,
     ) -> None:
         super().__init__()
+        self.defects = set(defects or ())
+        unknown = self.defects - set(DEFECTS)
+        if unknown:
+            raise ValueError(f"unknown synthetic defects {sorted(unknown)}; known: {sorted(DEFECTS)}")
+        self.defect_until_s = defect_until_s  # defects active only before this source time (None = always)
+        self._decim = 0
+        self._band_buf: deque[list[float]] = deque(maxlen=int(fs))
+        self._next_band = 0.0
         self.rng = np.random.default_rng(seed)
         self.fs = fs
         self.profile = profile
@@ -134,7 +160,8 @@ class SyntheticSource(EEGSource):
         self.jaw_rate_hz = jaw_rate_hz
         self.bad_fit_rate_hz = bad_fit_rate_hz
 
-        self._t_gen = 0.0
+        self._t_start: float | None = None
+        self._t_gen: float | None = None  # anchored to the first tick (virtual clocks start at 0, real ones do not)
         self._target_state = 0.0
         self._mode = "idle"
         self._state_lag = math.exp(-1.0 / (fs * 5.0))  # 5 s time constant
@@ -181,7 +208,12 @@ class SyntheticSource(EEGSource):
             "state_noise": self.state_noise,
             "drift_tau_s": self.drift_tau_s,
             "optimum": self.ground_truth.optimum.tolist(),
+            "defects": sorted(self.defects),
         }
+
+    def _defect(self, name: str, t: float) -> bool:
+        """``defect_until_s`` counts from the first tick."""
+        return name in self.defects and (self.defect_until_s is None or t - (self._t_start or 0.0) < self.defect_until_s)
 
     @property
     def state(self) -> float:
@@ -190,9 +222,15 @@ class SyntheticSource(EEGSource):
     def tick(self, now: float) -> None:
         if not self.running:
             return
-        n = int(math.floor((now - self._t_gen) * self.fs))
+        if self._t_gen is None:
+            self._t_gen = self._t_start = now
+            self._next_horseshoe = self._next_fnirs = self._next_hr = self._ppg_t = self._next_band = now
+        # never generate more than 5 s per tick (a stalled loop must not flood the scorer)
+        n = int(math.floor(min(now - self._t_gen, 5.0) * self.fs))
         if n > 0:
             self._generate(n)
+            if now - self._t_gen > 5.0:
+                self._t_gen = now
 
     # -- generation -----------------------------------------------------------
     def _ar1(self, n: int, rho: float, sd: float, zi: float) -> tuple[np.ndarray, float]:
@@ -250,13 +288,47 @@ class SyntheticSource(EEGSource):
         self._add_blinks(eeg, t, markers)
         self._add_jaw(eeg, t, markers)
         self._add_bad_fit(eeg, t)
+        t0 = float(t[0])
+        if self._defect("silent", t0):
+            self._t_gen += n / fs
+            return
+        if self._defect("bad_fit", t0) or self._defect("all_bad_fit", t0):
+            chans = range(4) if self._defect("all_bad_fit", t0) else (0, 3)
+            for ch in chans:
+                eeg[ch] += 400.0 * np.sin(2 * math.pi * 50.0 * t) + rng.standard_normal(n) * 120.0
+        if self._defect("dry_ptp", t0):
+            eeg += 110.0 * np.sin(2 * math.pi * 0.3 * t)[None, :] * np.array([[1.0], [0.9], [1.1], [1.0]])
 
-        eeg += 800.0  # Mind Monitor raw values are offset microvolts (~0..1682)
-        for i in range(n):
-            self._emit(Packet("eeg", float(t[i]), eeg[:, i].tolist()))
+        if self._defect("bands_only", t0):
+            self._band_buf.extend(eeg.T.tolist())
+            while self._next_band <= t[-1]:
+                self._emit_bands(np.asarray(self._band_buf, dtype=float).T, self._next_band)
+                self._next_band += 0.1
+        else:
+            if not self._defect("no_offset", t0) and not self._defect("volts", t0):
+                eeg += 800.0  # Mind Monitor raw values are offset microvolts (~0..1682)
+            if self._defect("volts", t0):
+                eeg *= 1e-6
+            step = 2 if self._defect("low_rate", t0) else 1
+            for i in range(self._decim % step, n, step):
+                self._emit(Packet("eeg", float(t[i]), eeg[:, i].tolist()))
+            self._decim = (self._decim + n) % step
         self._emit_many(markers)
         self._emit_aux(t[-1])
         self._t_gen += n / fs
+
+    def _emit_bands(self, eeg: np.ndarray, now: float) -> None:
+        """Mind Monitor style absolute band powers (log10 uV^2/Hz, roughly -1..1), 10 Hz."""
+        n = eeg.shape[1]
+        if n < 128:
+            return
+        x = eeg - eeg.mean(axis=1, keepdims=True)
+        spec = np.abs(np.fft.rfft(x, axis=1)) ** 2 / (n * self.fs)
+        f = np.fft.rfftfreq(n, 1.0 / self.fs)
+        for band, (lo, hi) in {"delta": (1, 4), "theta": (4, 8), "alpha": (8, 13), "beta": (13, 30), "gamma": (30, 44)}.items():
+            m = (f >= lo) & (f < hi)
+            vals = np.log10(np.maximum(spec[:, m].mean(axis=1), 1e-12))
+            self._emit(Packet("band", float(now), {"band": band, "values": vals.tolist()}, f"/muse/elements/{band}_absolute"))
 
     def _add_blinks(self, eeg: np.ndarray, t: np.ndarray, markers: list[Packet]) -> None:
         dt = len(t) / self.fs
@@ -294,11 +366,21 @@ class SyntheticSource(EEGSource):
                 eeg[ch, mask] += 400.0 * np.sin(2 * math.pi * 50.0 * t[mask]) + self.rng.standard_normal(int(mask.sum())) * 120.0
 
     def fit_values(self, now: float) -> list[float]:
+        if self._defect("all_bad_fit", now):
+            return [4.0] * 4
+        if self._defect("bad_fit", now):
+            return [4.0, 1.0, 1.0, 4.0]
+        if self._defect("medium_fit", now):
+            return [2.0] * 4
         return [4.0 if self._bad_fit_until[ch] >= now else 1.0 for ch in range(4)]
 
     def _emit_aux(self, now: float) -> None:
+        if self._defect("silent", now):
+            self._next_horseshoe = self._next_fnirs = self._next_hr = self._ppg_t = self._next_band = now
+            return
         while self._next_horseshoe <= now:
-            self._emit(Packet("horseshoe", self._next_horseshoe, self.fit_values(self._next_horseshoe), "/muse/elements/horseshoe"))
+            if not self._defect("no_horseshoe", self._next_horseshoe):
+                self._emit(Packet("horseshoe", self._next_horseshoe, self.fit_values(self._next_horseshoe), "/muse/elements/horseshoe"))
             self._next_horseshoe += 0.1
         while self._next_fnirs <= now:
             drift = 0.02 * math.sin(2 * math.pi * self._next_fnirs / 90.0)

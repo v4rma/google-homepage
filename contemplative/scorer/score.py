@@ -32,7 +32,7 @@ class ScoreSample:
     reasons: list[str] = field(default_factory=list)
     features: dict[str, float] = field(default_factory=dict)
     quality: dict = field(default_factory=dict)
-    fit: list[float] = field(default_factory=list)
+    fit: list[float] | None = None
 
 
 class FocusScorer:
@@ -45,18 +45,21 @@ class FocusScorer:
         self.n_valid = 0
         self.n_rejected = 0
         self.last_quality: dict = {}
+        self.last_segments: list = []
 
     def set_calibration(self, cal: Calibration | None) -> None:
         self.calibration = cal
 
     @property
-    def fit(self) -> list[float]:
+    def fit(self) -> list[float] | None:
+        """Latest horseshoe values, or None when none have arrived (fit unknown, not bad)."""
         return self.buffer.fit
 
     # -- streaming -------------------------------------------------------------------
     def push(self, packets: list[Packet]) -> list[ScoreSample]:
         out: list[ScoreSample] = []
-        for seg in self.buffer.push(packets):
+        self.last_segments = self.buffer.push(packets)
+        for seg in self.last_segments:
             if self._next_eval is None:
                 self._next_eval = seg.t_end + max(self.spec.window_s - self.spec.segment_s, 0.0)
             if seg.t_end >= self._next_eval:

@@ -35,9 +35,11 @@ class WindowFeatures:
     features: dict[str, float]
     groups_used: list[str]
     kept_fraction: dict[str, float]  # per channel name
-    fit: list[float]  # latest horseshoe
+    fit: list[float] | None  # latest horseshoe; None when no horseshoe message has arrived
     fallback_frontal_only: bool
     reasons: list[str] = field(default_factory=list)
+    raw_offset: list[float] | None = None
+    raw_scale: float = 1.0
 
     @property
     def valid(self) -> bool:
@@ -53,7 +55,10 @@ class WindowFeatures:
             "temporal_kept": round(float(np.mean(tp)), 2),
             "frontal_kept": round(float(np.mean(af)), 2),
             "fit": self.fit,
+            "fit_known": self.fit is not None,
             "n_segments": self.n_segments,
+            "raw_offset": None if self.raw_offset is None else [round(v, 1) for v in self.raw_offset],
+            "raw_scale": self.raw_scale,
         }
 
 
@@ -65,15 +70,26 @@ class SegmentBuffer:
         self._raw: deque[list[float]] = deque(maxlen=self.seg_n + 8)
         self._t: deque[float] = deque(maxlen=self.seg_n + 8)
         self._next_seg: float | None = None
-        self._fit: list[float] = [1.0] * 4
+        self._fit: list[float] | None = None  # unknown until a horseshoe message arrives
+        self.n_horseshoe = 0
         self._markers: deque[tuple[float, str]] = deque(maxlen=128)
         self.segments: deque[Segment] = deque(maxlen=int(max_history_s / self.hop_s) + 1)
         self.f: np.ndarray | None = None
         self.n_segments = 0
+        # raw-unit handling: Mind Monitor sends microvolts offset by ~800; if the
+        # stream is clearly in volts (MAD < 0.01) it is rescaled by 1e6.  Both the
+        # estimated offset and the scale are reported, never assumed.
+        self.raw_offset: list[float] | None = None
+        self.raw_scale: float = 1.0
+        self.scale_note: str | None = None
 
     @property
-    def fit(self) -> list[float]:
-        return list(self._fit)
+    def fit(self) -> list[float] | None:
+        return None if self._fit is None else list(self._fit)
+
+    @property
+    def fit_known(self) -> bool:
+        return self._fit is not None
 
     def push(self, packets: list[Packet]) -> list[Segment]:
         """Consume packets; return newly completed segments."""
@@ -93,6 +109,7 @@ class SegmentBuffer:
                         self._next_seg = p.t + self.hop_s
             elif p.kind == "horseshoe" and len(p.data) >= 4:
                 self._fit = [float(v) for v in p.data[:4]]
+                self.n_horseshoe += 1
             elif p.kind in ("blink", "jaw_clench"):
                 self._markers.append((p.t, p.kind))
         return new
@@ -101,6 +118,9 @@ class SegmentBuffer:
         if len(self._raw) < self.seg_n:
             return None
         x = np.array(list(self._raw)[-self.seg_n :], dtype=float).T
+        if self.raw_offset is None:
+            self._detect_units(x)
+        x = x * self.raw_scale
         t_start = self._t[-self.seg_n]
         pad = 0.25
         marks = [m for (tm, m) in self._markers if t_start - pad <= tm <= t_end + pad]
@@ -111,6 +131,18 @@ class SegmentBuffer:
         self.segments.append(seg)
         self.n_segments += 1
         return seg
+
+    def _detect_units(self, x: np.ndarray) -> None:
+        med = np.nanmedian(x, axis=1)
+        mad = float(np.nanmedian(np.abs(x - med[:, None])))
+        self.raw_offset = [float(v) for v in med]
+        if np.isfinite(mad) and 0.0 < mad < 0.01:
+            self.raw_scale = 1e6
+            self.scale_note = f"raw values look like volts (median abs deviation {mad:.2e}); rescaled by 1e6 to microvolts"
+        elif np.isfinite(mad) and mad > 5000:
+            self.scale_note = f"raw values have an unusually large spread (median abs deviation {mad:.0f}); check units"
+        elif not (400 < float(np.nanmedian(med)) < 1200):
+            self.scale_note = f"raw EEG is not centred near Mind Monitor's ~800 uV (median {float(np.nanmedian(med)):.1f}); offset is removed per segment, so this is informational"
 
     def window(self, t0: float, t1: float) -> WindowFeatures | None:
         """Aggregate segments ending in (t0, t1]."""
@@ -147,4 +179,6 @@ class SegmentBuffer:
             fit=segs[-1].fit,
             fallback_frontal_only=fallback,
             reasons=reasons,
+            raw_offset=self.raw_offset,
+            raw_scale=self.raw_scale,
         )

@@ -80,6 +80,16 @@ class FeatureSpec:
             # temporal electrodes must be well seated (horseshoe 1); frontal may be medium (2)
             self.group_max_fit[g] = float(cfg.get("max_fit", 1 if g == "temporal" else 2))
         self.features: list[FeatureDef] = [self._parse_feature(f) for f in raw["features"]]
+        self.tolerant = False
+
+    def apply_tolerant(self, ptp_uv: float = 300.0) -> "FeatureSpec":
+        """Dry-electrode mode (``--fit-tolerant``): accept medium horseshoe fit on every
+        group and raise the peak-to-peak rejection threshold."""
+        for g in self.group_max_fit:
+            self.group_max_fit[g] = max(self.group_max_fit[g], 2.0)
+        self.artifact["per_channel_peak_to_peak_max_uv"] = max(float(self.artifact.get("per_channel_peak_to_peak_max_uv", 150.0)), ptp_uv)
+        self.tolerant = True
+        return self
 
     # -- parsing -------------------------------------------------------------------
     def _parse_feature(self, f: dict[str, Any]) -> FeatureDef:
@@ -118,7 +128,11 @@ class FeatureSpec:
         return [f for f in self.features if f.weight != 0.0]
 
     def with_profile(self, profile: str) -> "FeatureSpec":
-        return FeatureSpec(self.raw, profile)
+        other = FeatureSpec(self.raw, profile)
+        other.window_s, other.hop_s = self.window_s, self.hop_s
+        if self.tolerant:
+            other.apply_tolerant(float(self.artifact["per_channel_peak_to_peak_max_uv"]))
+        return other
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -128,6 +142,9 @@ class FeatureSpec:
             "window_s": self.window_s,
             "hop_s": self.hop_s,
             "groups": {g: [CHANNELS[i] for i in idx] for g, idx in self.groups.items()},
+            "max_fit": self.group_max_fit,
+            "ptp_max_uv": self.artifact.get("per_channel_peak_to_peak_max_uv", 150.0),
+            "tolerant": self.tolerant,
             "features": [{"name": f.name, "group": f.group, "type": f.type, "weight": f.weight, "calibrate_sign": f.calibrate_sign} for f in self.features],
         }
 
