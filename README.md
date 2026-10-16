@@ -38,22 +38,60 @@ Quick checks:
 ```bash
 python -m contemplative simulate --quiet       # headless closed loop, ~20 s; exits 0 if the optimum is recovered
 python -m contemplative check-visuals          # spectrum of the morph schedule: no 3–30 Hz content
-pytest                                         # unit tests + the simulation integration test
+python -m contemplative check-stream --source synthetic --seconds 5   # the stream diagnostics on the synthetic wearer
+pytest                                         # unit tests + the simulation / OSC integration tests
 ```
 
-## Muse Athena via Mind Monitor (primary path)
+## Muse Athena via Mind Monitor (primary path), step by step
 
-1. Pair the Athena with the phone running Mind Monitor and get a good fit (all four horseshoe indicators solid).
-2. Mind Monitor → Settings → **OSC Stream Target IP**: the LAN IP of the computer running this program; **OSC Stream Port**: `5000` (the default here; change with `--osc-port`). Leave "OSC Stream Brainwaves" on *all* and make sure *raw EEG* streaming is enabled.
-3. Start the server:
+1. **Pair** the Athena with the phone running Mind Monitor and get a good fit (all four horseshoe indicators solid).
+2. **Mind Monitor settings**: *OSC Stream Target IP* = the LAN IP of the computer running this program (Windows: `ipconfig`, the IPv4 address of the Wi-Fi adapter; macOS/Linux: `ifconfig`/`ip a`); *OSC Stream Port* = `5000` (the default here; `--osc-port` to change); *OSC Stream Brainwaves* = **All** (raw EEG must be streamed — band powers alone are not enough). Phone and PC must be on the same Wi-Fi, not a guest network with client isolation. Then tap the stream icon.
+3. **Check the stream before anything else** (20 s, no session, nothing written):
 
 ```bash
-python -m contemplative run --source osc --wearer alice
+python -m contemplative check-stream --source osc
 ```
 
-4. Open `http://127.0.0.1:8000/` on the display the wearer looks at (click or press `F` for fullscreen; the cursor and hints hide after a few seconds) and `http://127.0.0.1:8000/dashboard` on a second screen or laptop. Press **Start session** on the dashboard (or pass `--autostart`).
+It prints, live and as a final report: OSC packets per address with rates, raw EEG sample rate (overall and per channel), whether raw `/muse/eeg` arrives at all or only band-power messages, the horseshoe values as received per channel, the raw value range / median per channel with a units guess (Mind Monitor's ~800 µV offset, zero-centred, volts…), and per-segment rejection reasons with counts (`ptp`, `flat`, `fit`, `blink`, `jaw`, `emg`) — followed by a one-line **diagnosis** naming the single most likely problem and what to do. Exit code 0 means usable (possibly with a warning), 1 means it will not work yet. The same panel appears live on the dashboard ("Stream check", runs automatically when the server starts and on the **Check stream** button).
 
-The ingest listens on `0.0.0.0:5000` by default and understands the Mind Monitor OSC set: `/muse/eeg` (4 floats, µV with ~800 offset, 256 Hz), `/muse/elements/horseshoe` (1 good / 2 medium / 4 bad), `/muse/elements/blink`, `/muse/elements/jaw_clench`, `/muse/ppg`, `/muse/acc`, `/muse/gyro`, band `_absolute` messages, and anything under `/muse/optics*` / `/muse/fnirs*` (recorded as fNIRS). Unknown addresses are recorded under `other` so nothing streamed is lost. Channel order is always `TP9, AF7, AF8, TP10`.
+Typical diagnoses:
+
+| diagnosis | meaning | fix |
+|---|---|---|
+| `no_packets` | nothing reaches Python | wrong Target IP / port, different Wi-Fi, or **Windows Defender Firewall** blocking inbound UDP for `python.exe` (allow it when Windows asks, or add an inbound rule for UDP 5000). Separate the two: run `python -m contemplative fake-muse` in a second terminal — if `check-stream` passes with the fake stream, the problem is on the phone/network side |
+| `bands_only` | band powers arrive, no raw EEG | Mind Monitor → Settings → *OSC Stream Brainwaves* → **All** |
+| `low_rate` | raw EEG well below 256 Hz | Wi-Fi loss / phone throttling: keep Mind Monitor in the foreground, screen on, battery optimisation off |
+| `fit_unknown` (warn) | no horseshoe messages | fit is treated as *unknown*, not bad; scoring continues on peak-to-peak/flat checks only |
+| `all_rejected_fit` / `temporal_rejected_fit` | horseshoe says the electrodes (TP9/TP10) are not seated | reseat behind the ears, hair out of the way, moisten the skin; or `--fit-tolerant` to accept medium fit |
+| `all_rejected_ptp` | > 150 µV peak-to-peak everywhere | movement / jaw / loose band / mains; `--fit-tolerant` raises the threshold to 300 µV for dry electrodes |
+| `units`, `units_note` | raw values not in the expected range | the offset is auto-detected and removed per segment; volts are rescaled; anything else is reported |
+
+4. **Start the server** (the stream check runs again automatically):
+
+```bash
+python -m contemplative run --source osc --wearer alice            # add --fit-tolerant if check-stream said so
+```
+
+5. Open `http://127.0.0.1:8000/` on the display the wearer looks at (click or press `F` for fullscreen; the cursor and hints hide after a few seconds) and `http://127.0.0.1:8000/dashboard` on a second screen or laptop. Wait for the stream check panel to be green or amber, then press **Start session** (or pass `--autostart`). During calibration the dashboard shows the live count of valid windows per block (5 needed); a block that does not reach it is extended automatically (twice) before the session aborts with the same diagnosis as above.
+
+The ingest listens on `0.0.0.0:5000` by default and understands the Mind Monitor OSC set: `/muse/eeg` (4–5 floats, µV with ~800 offset, 256 Hz), `/muse/elements/horseshoe` (1 good / 2 medium / 4 bad), `/muse/elements/blink`, `/muse/elements/jaw_clench`, `/muse/ppg`, `/muse/acc`, `/muse/gyro`, band `_absolute` messages, and anything under `/muse/optics*` / `/muse/fnirs*` (recorded as fNIRS). Unknown addresses are recorded under `other` so nothing streamed is lost. Channel order is always `TP9, AF7, AF8, TP10`.
+
+### Robustness to Athena / Mind Monitor differences
+
+- **No horseshoe messages** → fit is *unknown*, not bad: no fit-based rejection, the dashboard shows `fit ?` with a warning, and the peak-to-peak / flat / marker checks carry the artifact rejection.
+- **Raw offset / scale** → the per-channel median of the first segment is reported as the offset and every segment is de-meaned, so a stream centred on 0 instead of 800 scores identically. Values that look like volts (MAD < 0.01) are rescaled ×10⁶; other implausible ranges are flagged.
+- **`--fit-tolerant`** → accepts medium horseshoe fit (2) on TP9/TP10 as well as the frontal pair and raises the peak-to-peak threshold to 300 µV. Use it when `check-stream` reports fit/ptp rejection that reseating does not fix.
+- **Band powers only** → the session aborts during settle naming the exact Mind Monitor setting; the 1/f exponent and alpha-frequency features cannot be computed from band powers, so they are not approximated.
+- **No EEG at settle** → the settle phase waits up to 45 s for raw EEG, then aborts with the diagnosis instead of running 8 minutes of calibration on nothing.
+
+### Rehearsing without hardware
+
+`python -m contemplative fake-muse [--target host:port] [--synthetic-defect …]` sends the synthetic wearer as a Mind Monitor OSC stream. Defects: `silent`, `bands_only`, `no_horseshoe`, `no_offset`, `volts`, `medium_fit`, `bad_fit`, `all_bad_fit`, `dry_ptp`, `low_rate`. For example, in two terminals:
+
+```bash
+python -m contemplative fake-muse --synthetic-defect no_horseshoe
+python -m contemplative check-stream --source osc              # -> WARN fit_unknown, both groups usable
+```
 
 Other sources:
 
@@ -68,8 +106,8 @@ Replay accepts this program's own `raw_eeg.csv` (+ `aux.jsonl` next to it) or a 
 
 ## What a session looks like
 
-1. **Settle** (10 s): uniform field while the stream stabilises.
-2. **Calibration** (only when `data/<wearer>/calibration.json` is missing, or with `--recalibrate`): 2 min eyes-open fixation on the uniform isoluminant field, then 2 min breath focus, repeated once (8 min total; `--calib-block`, `--calib-repeats`). Faint on-screen cues say which. The first 15 s of every block are discarded.
+1. **Settle** (10 s, up to 45 s if raw EEG has not arrived): uniform field while the stream stabilises; aborts with a diagnosis if no raw EEG arrives.
+2. **Calibration** (only when `data/<wearer>/calibration.json` is missing, or with `--recalibrate`): 2 min eyes-open fixation on the uniform isoluminant field, then 2 min breath focus, repeated once (8 min total; `--calib-block`, `--calib-repeats`). Faint on-screen cues say which. The first 15 s of every block are discarded. Each block must yield 5 valid scoring windows (live count on the dashboard); if it does not, the block is extended up to twice before the session aborts with a diagnosis of the stream.
 3. **Trials** (16 by default, `--trials`): baseline 60 s on the uniform field → stimulus 75 s with the first 15 s (the ≥10 s morph plus settling) discarded → reward = score over one spec window spanning the scored stimulus interval minus the same for the baseline. The optimiser proposes the next point; literature prior first, then 4 Latin-hypercube seeds, then expected improvement. ~36 min for 16 trials.
 4. The wearer may press `B` ("better than the last one") or `W` ("worse") on the visuals page, or the dashboard buttons; the rating becomes a pseudo-observation on the GP.
 
@@ -89,7 +127,7 @@ sessions/<timestamp>/
 
 ### The dashboard
 
-Live phase/trial/countdown, current parameters (unit and physical: fractal D, fold order, Kelvin…), live score sparkline, **signal quality per channel** (horseshoe fit colour + fraction of segments kept, which channel groups are in use, and a visible warning when the scorer has fallen back to frontal-only because TP9/TP10 are badly seated), trial table with rewards and ratings, optimiser state (ARD length scales, GP best with its predicted value), and the calibration (signs chosen, separation d, notes).
+Stream check panel (packets per address, EEG rate, raw ranges and units, horseshoe, rejection reasons, diagnosis; runs while idle), live phase/trial/countdown, calibration progress (valid windows per block), current parameters (unit and physical: fractal D, fold order, Kelvin…), live score sparkline, **signal quality per channel** (horseshoe fit colour + fraction of segments kept, which channel groups are in use, and a visible warning when the scorer has fallen back to frontal-only because TP9/TP10 are badly seated), trial table with rewards and ratings, optimiser state (ARD length scales, GP best with its predicted value), and the calibration (signs chosen, separation d, notes).
 
 ### TouchDesigner
 
@@ -161,12 +199,13 @@ An honest caveat: the synthetic defaults give a per-trial reward signal-to-noise
 
 ```
 contemplative/
-  ingest/      base.py (Packet/EEGSource), osc_source.py, lsl_source.py, replay_source.py, synthetic.py, recorder.py
+  ingest/      base.py (Packet/EEGSource), osc_source.py, lsl_source.py, replay_source.py, synthetic.py (+ defects),
+               recorder.py, stream_check.py (diagnostics), osc_fake.py (fake Mind Monitor sender)
   scorer/      spec/*.json, features.py, artifacts.py, windows.py, calibration.py, score.py
   optimizer/   gp_optimizer.py
   visuals/     params.py (axes, prior, physical mapping), osc_broadcast.py, temporal_check.py, static/ (pages)
   session/     protocol.py, clock.py, orchestrator.py, server.py, simulate.py
-  cli.py       run | calibrate | simulate | check-visuals
+  cli.py       run | calibrate | simulate | check-visuals | check-stream | fake-muse
 tests/         unit tests + integration test
 docs/          temporal-spectrum-check.md
 ```
