@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>contemplative - dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#111317; --panel:#1a1d23; --fg:#d6d9de; --muted:#8a9099; --accent:#7fb3d5; --good:#6fbf73; --mid:#d8b45a; --bad:#d26a5c; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:10px 18px; border-bottom:1px solid #262a31; }
+  header h1 { font-size:16px; font-weight:600; margin:0; letter-spacing:.03em; }
+  header .spacer { flex:1; }
+  button { background:#262a31; color:var(--fg); border:1px solid #343944; border-radius:6px; padding:6px 12px; cursor:pointer; font:inherit; }
+  button:hover { background:#2f3440; }
+  button.primary { background:#2d4a5e; border-color:#3b6480; }
+  button:disabled { opacity:.45; cursor:default; }
+  main { display:grid; grid-template-columns: 1.1fr 1fr 1fr; gap:12px; padding:12px 18px; }
+  .panel { background:var(--panel); border:1px solid #262a31; border-radius:8px; padding:12px 14px; }
+  .panel h2 { margin:0 0 8px; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+  .big { font-size:28px; font-weight:600; }
+  .muted { color:var(--muted); }
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; }
+  .kv div:nth-child(odd) { color:var(--muted); }
+  canvas.spark { width:100%; height:120px; background:#14171c; border-radius:6px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:right; padding:3px 6px; border-bottom:1px solid #22262d; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  .fits { display:flex; gap:8px; }
+  .fit { flex:1; text-align:center; padding:6px 4px; border-radius:6px; background:#22262d; font-size:12px; }
+  .fit.good { background:#244b2a; } .fit.mid { background:#5a4a1e; } .fit.bad { background:#5a2a24; } .fit.unknown { background:#2a2e36; color:var(--muted); }
+  .diag { padding:8px 10px; border-radius:6px; margin-bottom:8px; font-size:13px; }
+  .diag.ok { background:#1f3a24; } .diag.warn { background:#4a3d18; } .diag.fatal { background:#4d231e; }
+  .diag .advice { color:var(--fg); opacity:.85; margin-top:4px; font-size:12.5px; }
+  .cols { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px; }
+  .mono { font:12px/1.4 ui-monospace, monospace; }
+  .progress { height:8px; background:#22262d; border-radius:4px; overflow:hidden; margin-top:4px; }
+  .progress i { display:block; height:100%; background:var(--good); }
+  @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } }
+  .bar { height:6px; background:#22262d; border-radius:3px; overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; background:var(--accent); }
+  #log { font:12px/1.4 ui-monospace, monospace; max-height:220px; overflow:auto; white-space:pre-wrap; color:#b7bcc4; }
+  .tag { display:inline-block; padding:1px 6px; border-radius:4px; background:#262a31; font-size:11px; color:var(--muted); }
+  .warn { color:var(--mid); }
+  .full { grid-column: 1 / -1; }
+  a { color:var(--accent); }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>contemplative visuals</h1>
+  <span id="conn" class="tag">connecting</span>
+  <span id="session" class="muted"></span>
+  <span class="spacer"></span>
+  <a href="/" target="_blank">open visuals page</a>
+  <button id="btnCheck" title="listen for 20 s and report what arrives (no session)">Check stream</button>
+  <button id="btnStart" class="primary">Start session</button>
+  <button id="btnStop">Stop</button>
+  <button id="btnBetter" title="this stimulus felt better than the previous one">Better than last</button>
+  <button id="btnWorse" title="this stimulus felt worse than the previous one">Worse than last</button>
+</header>
+<main>
+  <section class="panel">
+    <h2>Now</h2>
+    <div class="row">
+      <div><div class="muted">phase</div><div class="big" id="phase">idle</div></div>
+      <div><div class="muted">trial</div><div class="big" id="trial">-</div></div>
+      <div><div class="muted">remaining</div><div class="big" id="remaining">-</div></div>
+      <div><div class="muted">score</div><div class="big" id="score">-</div></div>
+    </div>
+    <div class="kv" id="params" style="margin-top:10px"></div>
+    <div id="calprog" style="margin-top:10px"></div>
+    <div class="muted" id="message" style="margin-top:8px"></div>
+  </section>
+  <section class="panel">
+    <h2>Signal quality</h2>
+    <div class="fits" id="fits"></div>
+    <div class="kv" id="quality" style="margin-top:10px"></div>
+    <div id="fallback" class="warn" style="margin-top:6px"></div>
+  </section>
+  <section class="panel">
+    <h2>Optimizer</h2>
+    <div class="kv" id="opt"></div>
+    <div class="muted" style="margin-top:8px">GP current best</div>
+    <div class="kv" id="best"></div>
+  </section>
+  <section class="panel full" id="streamPanel">
+    <h2>Stream check <span id="streamStatus" class="tag"></span></h2>
+    <div id="streamDiag" class="diag"></div>
+    <div class="cols">
+      <div><div class="muted">packets per address</div><div class="kv mono" id="streamAddr"></div></div>
+      <div><div class="muted">raw EEG</div><div class="kv" id="streamEeg"></div></div>
+      <div><div class="muted">segments &amp; rejections</div><div class="kv" id="streamSeg"></div></div>
+    </div>
+  </section>
+  <section class="panel full">
+    <h2>Live score (last 10 min)</h2>
+    <canvas class="spark" id="spark" width="1200" height="120"></canvas>
+  </section>
+  <section class="panel" style="grid-column: span 2">
+    <h2>Trials</h2>
+    <table id="trials"><thead><tr><th>#</th><th>tag</th><th>speed</th><th>D</th><th>sym</th><th>K</th><th>breath</th><th>tex</th><th>base</th><th>stim</th><th>reward</th><th>rating</th><th>quality</th></tr></thead><tbody></tbody></table>
+  </section>
+  <section class="panel">
+    <h2>Calibration &amp; spec</h2>
+    <div class="kv" id="cal"></div>
+  </section>
+  <section class="panel full">
+    <h2>Log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

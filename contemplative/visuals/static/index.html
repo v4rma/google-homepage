@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>contemplative visuals</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  body { cursor: none; }
+  body.show-cursor { cursor: default; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hint {
+    position: fixed; left: 50%; bottom: 6vh; transform: translateX(-50%);
+    color: rgba(255,255,255,0.35); font: 14px/1.4 system-ui, sans-serif; letter-spacing: .04em;
+    text-align: center; pointer-events: none; transition: opacity 1.5s; opacity: 1;
+  }
+  #hint.hidden { opacity: 0; }
+  #cue {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.45); font: 300 22px/1.4 system-ui, sans-serif; letter-spacing: .08em;
+    pointer-events: none; opacity: 0; transition: opacity 1.5s;
+  }
+  #cue.on { opacity: 1; }
+  #diag {
+    position: fixed; left: 1vw; top: 1vh; color: rgba(255,255,255,0.4);
+    font: 11px/1.3 ui-monospace, monospace; white-space: pre; display: none; pointer-events: none;
+  }
+  #diag.on { display: block; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="cue"></div>
+<div id="hint">click or press F for fullscreen &middot; B = better than last &middot; W = worse than last</div>
+<div id="diag"></div>
+<script src="/static/visuals.js"></script>
+</body>
+</html>

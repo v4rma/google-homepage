@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contemplative-visuals"
+version = "0.1.0"
+description = "Closed-loop contemplative visuals: Muse Athena EEG -> focused-attention score -> Bayesian optimisation -> WebGL shader"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy==2.5.4",
+    "scipy==1.18.1",
+    "scikit-learn==1.9.1",
+    "python-osc==1.10.2",
+    "fastapi==0.143.2",
+    "uvicorn[standard]==0.54.0",
+    "websockets==17.2",
+]
+
+[project.optional-dependencies]
+lsl = ["pylsl==1.18.6"]
+dev = ["pytest==9.1.1"]
+
+[project.scripts]
+contemplative = "contemplative.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["contemplative*"]
+
+[tool.setuptools.package-data]
+"contemplative.scorer" = ["spec/*.json"]
+"contemplative.visuals" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: full closed-loop simulation (slower, ~20 s)"]
+filterwarnings = ["ignore::sklearn.exceptions.ConvergenceWarning"]

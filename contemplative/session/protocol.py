@@ -1,0 +1,65 @@
+"""Timing of the session protocol (report Section 2, "Learning from 15-25 samples")."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, replace
+
+
+@dataclass(frozen=True)
+class Protocol:
+    settle_s: float = 10.0  # wait for the stream before anything is scored
+    settle_max_s: float = 45.0  # keep waiting for raw EEG this long before aborting with a diagnosis
+    calib_block_s: float = 120.0  # eyes-open fixation 2 min, breath focus 2 min ...
+    calib_repeats: int = 2  # ... repeated
+    calib_discard_s: float = 15.0
+    calib_min_windows: int = 5  # valid windows a block must yield ...
+    calib_max_extensions: int = 2  # ... or it is re-run this many times before the session aborts
+    baseline_s: float = 60.0  # uniform field, 30-60 s (45 s scored)
+    stimulus_s: float = 75.0  # 60-90 s (60 s scored)
+    discard_s: float = 15.0  # first 15 s of every scored phase dropped (orienting + morph)
+    morph_s: float = 10.0  # every parameter change is a >= 10 s morph
+    n_trials: int = 16  # 15-20 per sit
+    reward: str = "window"  # "window": one spec window over the scored part; "median": median of display scores
+    min_valid_segments: int = 10  # fewer usable 2-s segments than this in a scored part -> trial invalid, repeated
+    loop_dt: float = 0.1
+
+    def scaled(self, factor: float) -> "Protocol":
+        """Shorten every duration by ``factor`` (for quick simulations); the morph stays >= 10 s unless factor < 1 is forced."""
+        return replace(
+            self,
+            settle_s=self.settle_s * factor,
+            settle_max_s=self.settle_max_s * factor,
+            calib_block_s=self.calib_block_s * factor,
+            calib_discard_s=self.calib_discard_s * factor,
+            baseline_s=self.baseline_s * factor,
+            stimulus_s=self.stimulus_s * factor,
+            discard_s=self.discard_s * factor,
+            morph_s=max(self.morph_s * factor, min(self.morph_s, 10.0)) if factor >= 1 else self.morph_s * factor,
+        )
+
+    @property
+    def trial_s(self) -> float:
+        return self.baseline_s + self.stimulus_s
+
+    @property
+    def calibration_s(self) -> float:
+        return 2 * self.calib_block_s * self.calib_repeats
+
+    def warnings(self, window_s: float | None = None) -> list[str]:
+        """Human-readable problems with these timings (too short to score, morph too fast)."""
+        out = []
+        need = self.min_valid_segments + 2.0
+        if self.baseline_s - self.discard_s < need:
+            out.append(f"baseline {self.baseline_s:.0f} s minus discard {self.discard_s:.0f} s leaves < {need:.0f} s to score; trials will be invalid (use --baseline >= {self.discard_s + need:.0f})")
+        if self.stimulus_s - self.discard_s < need:
+            out.append(f"stimulus {self.stimulus_s:.0f} s minus discard {self.discard_s:.0f} s leaves < {need:.0f} s to score (use --stimulus >= {self.discard_s + need:.0f})")
+        if self.calib_block_s - self.calib_discard_s < 20.0:
+            out.append(f"calibration blocks of {self.calib_block_s:.0f} s are too short for stable statistics (use --calib-block >= 60)")
+        if window_s is not None and window_s > max(self.baseline_s, self.stimulus_s) - self.discard_s:
+            out.append(f"scoring window {window_s:.0f} s is longer than the scored part of a phase; it will be shortened")
+        if self.morph_s < 10.0:
+            out.append("morph shorter than 10 s is not allowed; the visuals page clamps to 10 s")
+        return out
+
+    def to_dict(self) -> dict:
+        return asdict(self)
