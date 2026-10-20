@@ -1,0 +1,25 @@
+[project]
+name = "avatar"
+version = "0.1.0"
+description = "Avatar: develops and tests a provisional model of a user's underlying assumptions from concrete episodes."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["avatar*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
