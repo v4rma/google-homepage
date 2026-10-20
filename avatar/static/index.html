@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avatar</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Avatar</h1>
+    <span class="subtitle">a provisional model of your assumptions, built from episodes you write</span>
+  </div>
+  <div id="status" class="status"></div>
+</header>
+<nav>
+  <button data-view="episodes" class="active">Episodes</button>
+  <button data-view="assumptions">Assumptions</button>
+  <button data-view="interview">Interview</button>
+  <button data-view="holdout">Prediction test</button>
+</nav>
+<div id="jobs" class="jobs"></div>
+<main>
+  <section id="view-episodes" class="view active">
+    <div class="columns">
+      <aside>
+        <div class="toolbar">
+          <button id="btn-new-episode" class="primary">New episode</button>
+          <button id="btn-seed" class="ghost" title="Load the clearly synthetic demo dataset">Load demo data</button>
+        </div>
+        <ul id="episode-list" class="list"></ul>
+      </aside>
+      <article id="episode-detail" class="detail">
+        <p class="hint">Select an episode, or write a new one. Write your account before asking the model for anything: the original is stored separately from everything added later and cannot be edited.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="view-assumptions" class="view">
+    <div class="toolbar">
+      <label><input type="checkbox" id="show-rejected"> show rejected</label>
+      <span class="hint">Everything here is a candidate, not a finding. Only your own words count as evidence; model text is marked as interpretation. Correct, reject or delete anything that does not fit.</span>
+    </div>
+    <div id="assumption-list" class="cards"></div>
+  </section>
+
+  <section id="view-interview" class="view">
+    <div class="columns">
+      <article class="detail" id="interview-current"></article>
+      <aside>
+        <h3>Previous questions</h3>
+        <ul id="turn-list" class="list"></ul>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-holdout" class="view">
+    <p class="hint">Reserved episodes are never shown to the hypothesis stages. Here the model receives only the situation, each candidate assumption predicts the response, and the prediction is compared with what you recorded. Prediction supports usefulness; it does not prove a cause.</p>
+    <div id="holdout-list" class="cards"></div>
+  </section>
+</main>
+<div id="toast" class="toast"></div>
+<template id="episode-form">
+  <form id="new-episode-form" class="form">
+    <h2>New episode</h2>
+    <label>Short title <input name="title" placeholder="e.g. Invitation to a weekly running club"></label>
+    <label>Situation: what happened, including the words someone actually used <textarea name="situation" required rows="3"></textarea></label>
+    <label>Immediate thought: what you immediately thought or expected <textarea name="immediate_thought" required rows="2"></textarea></label>
+    <label>Emotion and bodily feeling <textarea name="emotion_body" required rows="2"></textarea></label>
+    <label>Action and outcome: what you did, and what happened afterwards <textarea name="action_outcome" required rows="2"></textarea></label>
+    <label>A comparable occasion when you responded differently (optional) <textarea name="comparable_occasion" rows="2"></textarea></label>
+    <label class="inline"><input type="checkbox" name="reserved"> Reserve this episode for the prediction test (the model will not see it until then)</label>
+    <div class="actions"><button class="primary" type="submit">Save episode</button> <button type="button" class="ghost" id="cancel-episode">Cancel</button></div>
+  </form>
+</template>
+<script src="/static/app.js"></script>
+</body>
+</html>
