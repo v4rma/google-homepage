@@ -119,13 +119,14 @@ def _revision_payload(pipeline, a: dict, action: str, text: str) -> dict:
     return {"assumption": pipeline.assumption_record(a), "action": action, "correction": text, "episodes": [pipeline.episode_record(e) for e in episodes]}
 
 
-def apply_user_correction(pipeline, assumption_id: str, text: str) -> dict:
-    """The user's correction is recorded first and is authoritative; the model is then asked to re-word to match."""
+def apply_user_correction(pipeline, assumption_id: str, text: str, record_correction: bool = True) -> dict:
+    """The user's correction is recorded first and is authoritative; the model is then asked to re-word to match.
+    ``record_correction=False`` when the caller has already stored the correction text."""
     store = pipeline.store
     text = (text or "").strip()
     if not text:
         raise ValueError("correction text is required")
-    a = store.add_correction(assumption_id, text)
+    a = store.add_correction(assumption_id, text) if record_correction else store.get_assumption(assumption_id)
     if not a:
         raise KeyError("assumption not found")
     try:
@@ -148,15 +149,19 @@ def apply_user_correction(pipeline, assumption_id: str, text: str) -> dict:
     return {"assumption": updated, "reason": reason}
 
 
-def apply_user_rejection(pipeline, assumption_id: str, text: str = "") -> dict:
-    """Rejection always sticks, regardless of what the model says; the model may only offer an alternative."""
+def apply_user_rejection(pipeline, assumption_id: str, text: str = "", mark_rejected: bool = True) -> dict:
+    """Rejection always sticks, regardless of what the model says; the model may only offer an alternative.
+    ``mark_rejected=False`` when the caller has already recorded the rejection."""
     store = pipeline.store
     a = store.get_assumption(assumption_id)
     if not a:
         raise KeyError("assumption not found")
-    if text.strip():
-        a = store.add_correction(assumption_id, text.strip())
-    rejected = store.set_status(assumption_id, "rejected", trigger="user_rejection", reason="The user rejected this interpretation.")
+    if mark_rejected:
+        if text.strip():
+            a = store.add_correction(assumption_id, text.strip())
+        rejected = store.set_status(assumption_id, "rejected", trigger="user_rejection", reason="The user rejected this interpretation.")
+    else:
+        rejected = a
     alternative = None
     reason = "Rejected at the user's request."
     try:

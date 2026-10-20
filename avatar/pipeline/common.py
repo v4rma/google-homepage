@@ -175,15 +175,15 @@ class Pipeline:
 
         return answer_question(self, turn_id, answer)
 
-    def correct(self, assumption_id: str, text: str) -> dict:
+    def correct(self, assumption_id: str, text: str, record_correction: bool = True) -> dict:
         from .interview import apply_user_correction
 
-        return apply_user_correction(self, assumption_id, text)
+        return apply_user_correction(self, assumption_id, text, record_correction=record_correction)
 
-    def reject(self, assumption_id: str, text: str = "") -> dict:
+    def reject(self, assumption_id: str, text: str = "", mark_rejected: bool = True) -> dict:
         from .interview import apply_user_rejection
 
-        return apply_user_rejection(self, assumption_id, text)
+        return apply_user_rejection(self, assumption_id, text, mark_rejected=mark_rejected)
 
     def holdout(self, episode_id: str) -> dict:
         from .holdout import run_holdout

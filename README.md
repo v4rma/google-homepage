@@ -45,6 +45,9 @@ This is the first prototype: prompting plus a small memory store, no training.
    side with a match score and an optional rating by the person.
 8. **Privacy.** No episode content in diagnostic logs; provider key only from the environment; see
    *Data retention* below.
+9. **Nothing blocks on the model.** Every model-backed action is a background job: the API answers `202` with a
+   job record, the UI shows a "waiting for the Avatar agent" strip and keeps working, and the view refreshes when
+   the job finishes. Episodes, corrections and rejections are stored immediately; only the model's follow-up waits.
 
 ## Stack and why
 
@@ -53,11 +56,13 @@ This is the first prototype: prompting plus a small memory store, no training.
   immutability guarantee is a trigger in the schema rather than application convention.
 - **No ORM, no frontend build.** A single-page UI in plain HTML/JS keeps the prototype inspectable and easy to
   change; there is nothing to compile.
-- **One provider interface, three implementations.** `OpenAICompatProvider` talks to any OpenAI-compatible
-  chat-completions endpoint over `httpx`; `MockProvider` is a deterministic rule-based stand-in used when no key
-  is available; `ScriptedProvider` returns canned responses in tests. All pipeline logic (validation of
-  quotations, revision bookkeeping, guards) sits outside the providers, so swapping the model changes nothing
-  else.
+- **One provider interface, four implementations.** `AgentBridgeProvider` (the default) hands each request to the
+  Cursor project agent through a file inbox/outbox, so no API key is needed; `OpenAICompatProvider` talks to any
+  OpenAI-compatible chat-completions endpoint over `httpx` and is used only when `OPENAI_API_KEY` is set;
+  `MockProvider` is a deterministic keyword rule set for tests and offline plumbing checks (it must be chosen
+  explicitly and is not a model); `ScriptedProvider` returns canned responses in tests. All pipeline logic
+  (validation of quotations, revision bookkeeping, guards) sits outside the providers, so swapping the model
+  changes nothing else.
 
 ## Setup
 
@@ -71,8 +76,10 @@ Configuration is by environment variables only (see `.env.example`):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AVATAR_LLM_PROVIDER` | `openai` if `OPENAI_API_KEY` is set, else `mock` | `openai` (any OpenAI-compatible endpoint) or `mock` |
-| `OPENAI_API_KEY` | — | provider key; never written to disk or logs |
+| `AVATAR_LLM_PROVIDER` | `openai` if `OPENAI_API_KEY` is set, else `agent` | `agent` (Cursor project agent via file bridge), `openai` (any OpenAI-compatible endpoint) or `mock` (keyword rules, tests only) |
+| `AVATAR_AGENT_BRIDGE_DIR` | `data/agent-bridge` | directory holding `analysis-inbox/` and `analysis-outbox/` |
+| `AVATAR_AGENT_TIMEOUT` | `120` | seconds a stage waits for the agent before the job is marked "not answered" |
+| `OPENAI_API_KEY` | — | provider key (optional); never written to disk or logs |
 | `AVATAR_LLM_MODEL` | `gpt-4o-mini` | model name for the `openai` provider |
 | `AVATAR_LLM_BASE_URL` | `https://api.openai.com/v1` | endpoint; point at a local server to keep data on your machine |
 | `AVATAR_DB_PATH` | `data/avatar.db` | SQLite file |
@@ -93,9 +100,36 @@ Hypothesize → Critique) for a handful of episodes → *Assumptions* to inspect
 next question" and answer → correct or reject a candidate → *Prediction test* → "Run prediction test" on a
 reserved episode.
 
+## The agent bridge (default provider)
+
+With no key set, Avatar does not call any model API. Each stage request is written to
+`<AVATAR_AGENT_BRIDGE_DIR>/analysis-inbox/<id>.json` and the pipeline waits (in a background job) for
+`.../analysis-outbox/<id>.json`. The Cursor project agent that owns this prototype reads pending requests, acts
+as the model for that stage, and writes the answer. `scripts/agent_inbox.py` does the bookkeeping:
+
+```bash
+export AVATAR_AGENT_BRIDGE_DIR=/path/to/bridge
+python scripts/agent_inbox.py list                    # pending requests
+python scripts/agent_inbox.py wait --timeout 500      # block until one is pending, then print it
+python scripts/agent_inbox.py show <id>               # print a request (system prompt + user prompt)
+python scripts/agent_inbox.py answer <id> --file a.json
+```
+
+Request file: `{"id", "stage", "created_at", "system", "user", "payload"}` — `system` is the common rules prompt,
+`user` the stage instructions plus the input records as JSON, `payload` the same records as structured data. The
+answer is the bare JSON object the stage schema asks for (or `{"id", "response": {...}}`). The id is a hash of the
+stage and the user prompt, so an identical request reuses an existing answer and an answer that arrives after a
+timeout is picked up by "Retry" in the UI. Pending work for a processor is simply: inbox files without an outbox
+file of the same name.
+
+If nobody is answering, the UI stays usable: episodes are saved immediately, the job strip shows
+"Waiting for the Avatar agent" with the request id, and after `AVATAR_AGENT_TIMEOUT` seconds the job is marked as
+not answered with a Retry button. The request remains in the inbox.
+
 ## Milestone check
 
-`scripts/run_milestone.py` runs the whole pipeline on the demo dataset in a throwaway database and prints a
+`scripts/run_milestone.py` runs the whole pipeline on the demo dataset in a throwaway database (with the mock
+provider unless `AVATAR_LLM_PROVIDER` is set, so it never waits on the inbox unattended) and prints a
 Markdown report: the candidates after each episode, the interview questions and the synthetic persona's answers,
 the resulting assumption record in the brief's template, the revision history after a user correction, and the
 prediction-test tables with a generic baseline for comparison. The committed output is in
@@ -152,21 +186,23 @@ avatar/
   config.py          settings from environment variables
   db.py              SQLite schema (tables, immutability trigger)
   storage.py         repository layer
+  jobs.py            background job queue (model calls never block the UI)
   retrieval.py       BM25 retrieval of related episodes
   prompts.py         the stage prompts
   pipeline/          extract, hypothesize, critique, interview (+ corrections), holdout
-  llm/               provider interface, OpenAI-compatible provider, mock, scripted (tests)
+  llm/               provider interface; agent bridge (default), OpenAI-compatible, mock, scripted (tests)
   demo_data.py       synthetic dataset and the persona's scripted answers
   static/            single-page UI
-scripts/             seed_demo.py, run_milestone.py
+scripts/             seed_demo.py, run_milestone.py, agent_inbox.py
 tests/               storage, pipeline, API
 docs/                design brief, milestone report
 ```
 
 ## Known gaps
 
-- Built and tested against the mock and scripted providers only; the OpenAI-compatible provider is implemented
-  but has not been exercised against a live endpoint in this environment.
+- Analysis quality depends on who answers the inbox. The OpenAI-compatible provider is implemented but has not
+  been exercised against a live endpoint in this environment; the mock is plumbing-only.
+- Jobs live in memory: a server restart forgets queued jobs (inbox requests and answers persist on disk).
 - Retrieval is keyword-based (BM25); embeddings would help with paraphrased situations.
 - Pipeline calls are synchronous; a slow provider blocks the request.
 - Single user, no authentication; intended to run on localhost.

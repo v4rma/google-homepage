@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import replace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -55,6 +56,9 @@ def main() -> None:
     parser.add_argument("--write", help="write the report to this path")
     args = parser.parse_args()
     settings = load_settings()
+    if not os.environ.get("AVATAR_LLM_PROVIDER") and settings.provider == "agent":
+        # Unattended script: do not wait on the agent inbox unless explicitly asked to.
+        settings = replace(settings, provider="mock")
     configure_logging("WARNING")
     provider = make_provider(settings)
     store = Store(":memory:")

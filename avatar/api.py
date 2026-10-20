@@ -5,14 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
 from .config import Settings, load_settings
-from .llm import LLMError, LLMProvider, make_provider
-from .logging_utils import configure_logging, log_error
+from .jobs import JobQueue
+from .llm import LLMProvider, make_provider
+from .logging_utils import configure_logging
 from .pipeline import Pipeline
 from .storage import ALL_STATUSES, Store
 
@@ -59,30 +60,40 @@ def create_app(store: Store | None = None, provider: LLMProvider | None = None, 
     store = store or Store(settings.db_path)
     provider = provider or make_provider(settings)
     pipeline = Pipeline(store, provider, settings)
+    jobs = JobQueue(provider)
 
     app = FastAPI(title="Avatar", version=__version__, docs_url="/api/docs", redoc_url=None)
-    app.state.store, app.state.pipeline = store, pipeline
+    app.state.store, app.state.pipeline, app.state.jobs = store, pipeline, jobs
 
     def _404(obj, what: str = "record"):
         if obj is None:
             raise HTTPException(404, f"{what} not found")
         return obj
 
-    def _run(fn, *args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except KeyError as exc:
-            raise HTTPException(404, str(exc).strip("'"))
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-        except LLMError as exc:
-            log_error("api.llm_error", exc)
-            raise HTTPException(502, f"LLM provider error ({type(exc).__name__}); see server log for the error type")
+    def _job(kind: str, label: str, fn, *args, episode_id: str | None = None, assumption_id: str | None = None, **kwargs):
+        """Queue a model-backed call and return the job record (HTTP 202). The UI polls /api/jobs/{id}."""
+        job = jobs.submit(kind, label, lambda: fn(*args, **kwargs), episode_id=episode_id, assumption_id=assumption_id)
+        return JSONResponse(job, status_code=202)
+
+    def _ep_label(episode_id: str) -> str:
+        ep = store.get_episode(episode_id)
+        return (ep.get("title") or episode_id) if ep else episode_id
+
+    # ---------------------------------------------------------------- jobs
+    @app.get("/api/jobs")
+    def list_jobs(active: bool = False):
+        return jobs.list(active_only=active)
+
+    @app.get("/api/jobs/{job_id}")
+    def get_job(job_id: str, wait: float = 0.0):
+        return _404(jobs.get(job_id, wait=min(max(wait, 0.0), 25.0)), "job")
 
     # ---------------------------------------------------------------- meta
     @app.get("/api/status")
     def status():
-        return {"version": __version__, "provider": getattr(provider, "name", "?"), "model": settings.model if settings.provider != "mock" else None,
+        describe = getattr(provider, "describe", None)
+        return {"version": __version__, "provider": getattr(provider, "name", "?"), "model": settings.model if settings.provider == "openai" else None,
+                "provider_detail": describe() if callable(describe) else {}, "jobs_active": jobs.active_count(),
                 "counts": store.counts(), "pending_question": store.pending_turn()}
 
     # ---------------------------------------------------------------- episodes
@@ -120,17 +131,24 @@ def create_app(store: Store | None = None, provider: LLMProvider | None = None, 
         _404(store.get_episode(episode_id), "episode")
         store.delete_episode(episode_id)
 
-    @app.post("/api/episodes/{episode_id}/extract")
+    @app.post("/api/episodes/{episode_id}/extract", status_code=202)
     def extract(episode_id: str):
-        return _run(pipeline.extract, episode_id)
+        _404(store.get_episode(episode_id), "episode")
+        return _job("extract", f"Extract: {_ep_label(episode_id)}", pipeline.extract, episode_id, episode_id=episode_id)
 
-    @app.post("/api/episodes/{episode_id}/hypothesize")
+    @app.post("/api/episodes/{episode_id}/hypothesize", status_code=202)
     def hypothesize(episode_id: str):
-        return _run(pipeline.hypothesize, episode_id)
+        ep = _404(store.get_episode(episode_id), "episode")
+        if ep["reserved"]:
+            raise HTTPException(400, "reserved (holdout) episodes are not analysed; un-reserve it first")
+        return _job("hypothesize", f"Hypothesize: {_ep_label(episode_id)}", pipeline.hypothesize, episode_id, episode_id=episode_id)
 
-    @app.post("/api/episodes/{episode_id}/process")
+    @app.post("/api/episodes/{episode_id}/process", status_code=202)
     def process(episode_id: str):
-        return _run(pipeline.process_episode, episode_id)
+        ep = _404(store.get_episode(episode_id), "episode")
+        if ep["reserved"]:
+            raise HTTPException(400, "reserved (holdout) episodes are not analysed; un-reserve it first")
+        return _job("process", f"Analyse: {_ep_label(episode_id)}", pipeline.process_episode, episode_id, episode_id=episode_id)
 
     # ---------------------------------------------------------------- assumptions
     @app.get("/api/assumptions")
@@ -142,19 +160,28 @@ def create_app(store: Store | None = None, provider: LLMProvider | None = None, 
         a = _404(store.get_assumption(assumption_id), "assumption")
         return {**a, "interpretations": store.list_interpretations(assumption_id=assumption_id)}
 
-    @app.post("/api/assumptions/{assumption_id}/critique")
+    @app.post("/api/assumptions/{assumption_id}/critique", status_code=202)
     def critique(assumption_id: str):
-        return _run(pipeline.critique, assumption_id)
+        _404(store.get_assumption(assumption_id), "assumption")
+        return _job("critique", "Critique a candidate", pipeline.critique, assumption_id, assumption_id=assumption_id)
 
-    @app.post("/api/assumptions/{assumption_id}/correct")
+    @app.post("/api/assumptions/{assumption_id}/correct", status_code=202)
     def correct(assumption_id: str, body: CorrectionIn):
         _404(store.get_assumption(assumption_id), "assumption")
-        return _run(pipeline.correct, assumption_id, body.text)
+        if not body.text.strip():
+            raise HTTPException(400, "correction text is required")
+        # The correction is recorded immediately; only the re-wording waits for the model.
+        store.add_correction(assumption_id, body.text.strip())
+        return _job("correct", "Apply your correction", pipeline.correct, assumption_id, body.text, record_correction=False, assumption_id=assumption_id)
 
-    @app.post("/api/assumptions/{assumption_id}/reject")
+    @app.post("/api/assumptions/{assumption_id}/reject", status_code=202)
     def reject(assumption_id: str, body: CorrectionIn):
         _404(store.get_assumption(assumption_id), "assumption")
-        return _run(pipeline.reject, assumption_id, body.text)
+        # Rejection takes effect immediately; the model is only asked for an alternative afterwards.
+        if body.text.strip():
+            store.add_correction(assumption_id, body.text.strip())
+        store.set_status(assumption_id, "rejected", trigger="user_rejection", reason="The user rejected this interpretation.")
+        return _job("reject", "Offer an alternative after your rejection", pipeline.reject, assumption_id, body.text, mark_rejected=False, assumption_id=assumption_id)
 
     @app.patch("/api/assumptions/{assumption_id}/status")
     def set_status(assumption_id: str, body: StatusIn):
@@ -177,13 +204,18 @@ def create_app(store: Store | None = None, provider: LLMProvider | None = None, 
     def list_turns():
         return store.list_turns()
 
-    @app.post("/api/interview/next")
+    @app.post("/api/interview/next", status_code=202)
     def next_question(body: NextQuestionIn):
-        return _run(pipeline.next_question, body.episode_id)
+        if body.episode_id:
+            _404(store.get_episode(body.episode_id), "episode")
+        return _job("interview_question", "Choose the next question", pipeline.next_question, body.episode_id, episode_id=body.episode_id)
 
-    @app.post("/api/interview/{turn_id}/answer")
+    @app.post("/api/interview/{turn_id}/answer", status_code=202)
     def answer(turn_id: str, body: AnswerIn):
-        return _run(pipeline.answer, turn_id, body.answer)
+        t = _404(store.get_turn(turn_id), "question")
+        if t.get("answer"):
+            raise HTTPException(400, "this question has already been answered")
+        return _job("interview_update", "Revise candidates from your answer", pipeline.answer, turn_id, body.answer, episode_id=t["episode_id"])
 
     @app.delete("/api/interview/{turn_id}", status_code=204)
     def skip_question(turn_id: str):
@@ -199,9 +231,14 @@ def create_app(store: Store | None = None, provider: LLMProvider | None = None, 
         preds = store.list_predictions()
         return {"reserved": reserved, "predictions": preds}
 
-    @app.post("/api/holdout/{episode_id}/run")
+    @app.post("/api/holdout/{episode_id}/run", status_code=202)
     def holdout_run(episode_id: str):
-        return _run(pipeline.holdout, episode_id)
+        ep = _404(store.get_episode(episode_id), "episode")
+        if not ep["reserved"]:
+            raise HTTPException(400, "only reserved (holdout) episodes can be used for prediction tests")
+        if not pipeline.active_assumptions():
+            raise HTTPException(400, "no active candidate assumptions to test")
+        return _job("holdout", f"Prediction test: {_ep_label(episode_id)}", pipeline.holdout, episode_id, episode_id=episode_id)
 
     @app.patch("/api/predictions/{prediction_id}/rating")
     def rate(prediction_id: str, body: RatingIn):

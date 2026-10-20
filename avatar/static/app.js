@@ -31,10 +31,75 @@ const epLink = (id) => `<a href="#" data-open-episode="${esc(id)}">${esc(epLabel
 const statusBadge = (s) => `<span class="badge ${s === "rejected" ? "rejected" : s === "revised" ? "revised" : s === "under examination" ? "under" : ""}">${esc(s)}</span>`;
 
 // ------------------------------------------------------------------ status + nav
+const PROVIDER_LABEL = { agent: "Avatar project agent (file bridge)", openai: "OpenAI-compatible", mock: "keyword mock (not a model)", scripted: "scripted" };
 async function refreshStatus() {
   const s = await api("GET", "/api/status");
   const c = s.counts;
-  $("#status").innerHTML = `provider <b>${esc(s.provider)}${s.model ? " / " + esc(s.model) : ""}</b> · ${c.episodes} episodes (${c.reserved_episodes} reserved) · ${c.active_assumptions} active candidates · ${c.interview_turns} questions`;
+  state.provider = s.provider;
+  const pending = s.provider_detail?.pending_requests ? ` · ${s.provider_detail.pending_requests} request(s) awaiting the agent` : "";
+  $("#status").innerHTML = `analysis by <b>${esc(PROVIDER_LABEL[s.provider] || s.provider)}${s.model ? " / " + esc(s.model) : ""}</b>${pending} · ${c.episodes} episodes (${c.reserved_episodes} reserved) · ${c.active_assumptions} active candidates · ${c.interview_turns} questions`;
+}
+
+// ------------------------------------------------------------------ jobs (model-backed work never blocks the UI)
+const WAITING_LABEL = () => (state.provider === "agent" ? "Waiting for the Avatar agent" : "Working");
+const jobsState = { watching: new Map(), failed: [] };
+
+function renderJobs() {
+  const rows = [];
+  for (const j of jobsState.watching.values()) {
+    const secs = Math.max(0, Math.round((Date.now() - new Date(j.created_at).getTime()) / 1000));
+    rows.push(`<div class="job"><span class="dot"></span><span>${WAITING_LABEL()}: <b>${esc(j.label)}</b> · ${secs}s</span>${j.waiting_on ? `<span class="req">request ${esc(j.waiting_on)} in the analysis inbox</span>` : ""}</div>`);
+  }
+  for (const j of jobsState.failed) {
+    rows.push(`<div class="job failed"><span class="dot"></span><span><b>${esc(j.label)}</b> did not complete: ${esc(j.error)}</span><button data-retry="${esc(j.id)}">Retry</button><button class="ghost" data-dismiss="${esc(j.id)}">Dismiss</button></div>`);
+  }
+  $("#jobs").innerHTML = rows.join("");
+  $("#jobs").querySelectorAll("[data-dismiss]").forEach((b) => b.addEventListener("click", () => { jobsState.failed = jobsState.failed.filter((j) => j.id !== b.dataset.dismiss); renderJobs(); }));
+  $("#jobs").querySelectorAll("[data-retry]").forEach((b) => b.addEventListener("click", () => {
+    const j = jobsState.failed.find((x) => x.id === b.dataset.retry);
+    jobsState.failed = jobsState.failed.filter((x) => x.id !== b.dataset.retry); renderJobs();
+    if (j?.retry) j.retry();
+  }));
+}
+
+/** Submit a model-backed call; resolves with the job result when done, rejects when it fails. */
+async function runJob(method, path, body, { onDone, label } = {}) {
+  const retry = () => runJob(method, path, body, { onDone, label });
+  let job = await api(method, path, body);
+  jobsState.watching.set(job.id, job); renderJobs();
+  const tick = setInterval(renderJobs, 1000);
+  try {
+    while (job.status === "queued" || job.status === "running") {
+      job = await api("GET", `/api/jobs/${job.id}?wait=5`);
+      jobsState.watching.set(job.id, job);
+    }
+  } finally {
+    clearInterval(tick); jobsState.watching.delete(job.id); renderJobs();
+  }
+  if (job.status === "failed") {
+    jobsState.failed.push({ ...job, retry }); renderJobs(); refreshStatus();
+    throw new Error(job.error || "job failed");
+  }
+  refreshStatus();
+  if (onDone) await onDone(job.result);
+  return job.result;
+}
+
+async function resumeActiveJobs() {
+  const active = await api("GET", "/api/jobs?active=1").catch(() => []);
+  for (const j of active) {
+    if (jobsState.watching.has(j.id)) continue;
+    jobsState.watching.set(j.id, j);
+    (async () => {
+      let job = j;
+      const tick = setInterval(renderJobs, 1000);
+      try { while (job.status === "queued" || job.status === "running") { job = await api("GET", `/api/jobs/${job.id}?wait=5`); jobsState.watching.set(job.id, job); } }
+      finally { clearInterval(tick); jobsState.watching.delete(job.id); renderJobs(); }
+      if (job.status === "failed") jobsState.failed.push(job); else toast(`Finished: ${job.label}`);
+      renderJobs(); showView(state.view);
+    })();
+  }
+  renderJobs();
 }
 
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
@@ -48,7 +113,9 @@ function showView(v) {
 
 document.body.addEventListener("click", (e) => {
   const a = e.target.closest("[data-open-episode]");
-  if (a) { e.preventDefault(); showView("episodes"); openEpisode(a.dataset.openEpisode); }
+  if (a) { e.preventDefault(); showView("episodes");
+resumeActiveJobs();
+setInterval(() => { if (document.visibilityState === "visible") { refreshStatus().catch(() => {}); resumeActiveJobs(); } }, 15000); openEpisode(a.dataset.openEpisode); }
 });
 
 // ------------------------------------------------------------------ episodes
@@ -122,16 +189,15 @@ async function openEpisode(id) {
       ${ep.interpretations.map((i) => `<div class="interp"><span class="tag">${esc(i.stage)}</span> <code>${esc(JSON.stringify(i.content)).slice(0, 600)}</code></div>`).join("")}
     </details>`;
   $("#ep-process")?.addEventListener("click", (e) => busy(e.target, async () => {
-    const r = await api("POST", `/api/episodes/${id}/process`);
-    const n = r.hypothesize.assumptions.length;
-    toast(r.hypothesize.cannot_tell ? "The model found nothing pointing to a recurring assumption in this episode." : `Analysed: ${n} candidate(s) proposed or updated, ${r.critiques.length} critiqued.`);
-    openEpisode(id); refreshStatus();
+    toast(state.provider === "agent" ? "Sent to the Avatar agent. You can keep using the app; this panel updates when the analysis arrives." : "Analysing…");
+    await runJob("POST", `/api/episodes/${id}/process`, null, { onDone: (r) => {
+      const n = r.hypothesize.assumptions.length;
+      toast(r.hypothesize.cannot_tell ? "The model found nothing pointing to a recurring assumption in this episode." : `Analysed: ${n} candidate(s) proposed or updated, ${r.critiques.length} critiqued.`);
+      if (state.selectedEpisode === id && state.view === "episodes") openEpisode(id);
+    } });
   }));
-  $("#ep-extract")?.addEventListener("click", (e) => busy(e.target, async () => { await api("POST", `/api/episodes/${id}/extract`); openEpisode(id); }));
-  $("#ep-ask")?.addEventListener("click", (e) => busy(e.target, async () => {
-    const r = await api("POST", "/api/interview/next", { episode_id: id });
-    if (r.stop) toast(r.reason, 6000); else showView("interview");
-  }));
+  $("#ep-extract")?.addEventListener("click", (e) => busy(e.target, () => runJob("POST", `/api/episodes/${id}/extract`, null, { onDone: () => { if (state.selectedEpisode === id) openEpisode(id); } })));
+  $("#ep-ask")?.addEventListener("click", (e) => busy(e.target, () => runJob("POST", "/api/interview/next", { episode_id: id }, { onDone: (r) => { if (r.stop) toast(r.reason, 6000); else showView("interview"); } })));
   $("#ep-reserve").addEventListener("click", (e) => busy(e.target, async () => { await api("PATCH", `/api/episodes/${id}/reserved`, { reserved: !ep.reserved }); loadEpisodes(); openEpisode(id); }));
   $("#ep-delete").addEventListener("click", (e) => busy(e.target, async () => {
     if (!confirm("Delete this episode and everything derived from it?")) return;
@@ -186,19 +252,20 @@ function renderAssumption(a) {
 function bindAssumption(a) {
   const card = document.querySelector(`.card[data-id="${a.id}"]`);
   const q = (s) => card.querySelector(s);
-  q('[data-act="critique"]').addEventListener("click", (e) => busy(e.target, async () => { await api("POST", `/api/assumptions/${a.id}/critique`); toast("Critique recorded."); loadAssumptions(); }));
+  q('[data-act="critique"]').addEventListener("click", (e) => busy(e.target, () => runJob("POST", `/api/assumptions/${a.id}/critique`, null, { onDone: () => { toast("Critique recorded."); if (state.view === "assumptions") loadAssumptions(); } })));
   q('[data-act="correct"]').addEventListener("click", () => (q(".correct-box").style.display = "block"));
   q('[data-act="correct-cancel"]').addEventListener("click", () => (q(".correct-box").style.display = "none"));
   q('[data-act="correct-send"]').addEventListener("click", (e) => busy(e.target, async () => {
     const text = q(".correct-box textarea").value.trim();
     if (!text) return toast("Write the correction first.");
-    const r = await api("POST", `/api/assumptions/${a.id}/correct`, { text });
-    toast("Revised: " + r.reason, 5000); loadAssumptions();
+    toast("Your correction is recorded. The re-wording follows when the agent answers.");
+    await runJob("POST", `/api/assumptions/${a.id}/correct`, { text }, { onDone: (r) => { toast("Revised: " + r.reason, 5000); if (state.view === "assumptions") loadAssumptions(); } });
   }));
   q('[data-act="reject"]').addEventListener("click", (e) => busy(e.target, async () => {
     const text = prompt("Optional: why does this not fit? (your words are kept with the record)") ?? "";
-    const r = await api("POST", `/api/assumptions/${a.id}/reject`, { text });
-    toast(r.alternative ? "Rejected. The model offered an alternative candidate." : "Rejected.", 5000); loadAssumptions(); refreshStatus();
+    const p = runJob("POST", `/api/assumptions/${a.id}/reject`, { text }, { onDone: (r) => { toast(r.alternative ? "The model offered an alternative candidate." : "No alternative offered.", 5000); if (state.view === "assumptions") loadAssumptions(); } });
+    toast("Rejected. The agent is asked for an alternative in the background.", 4000); loadAssumptions(); refreshStatus();
+    await p.catch(() => {});
   }));
   q('[data-act="status"]').addEventListener("change", (e) => busy(null, async () => { if (e.target.value) { await api("PATCH", `/api/assumptions/${a.id}/status`, { status: e.target.value }); loadAssumptions(); } }));
   q('[data-act="delete"]').addEventListener("click", (e) => busy(e.target, async () => { if (confirm("Delete this candidate assumption and its evidence links?")) { await api("DELETE", `/api/assumptions/${a.id}`); loadAssumptions(); refreshStatus(); } }));
@@ -234,11 +301,11 @@ async function loadInterview() {
       <textarea id="answer" rows="4" placeholder="Answer in your own words. 'I don't know' is a fine answer."></textarea>
       <div class="actions"><button class="primary" id="send-answer">Answer</button><button id="dont-know">I don't know</button><button class="ghost" id="skip-q">Skip this question</button></div>`;
     const send = (text) => (e) => busy(e.target, async () => {
-      const r = await api("POST", `/api/interview/${pending.id}/answer`, { answer: text ?? $("#answer").value });
+      const r = await runJob("POST", `/api/interview/${pending.id}/answer`, { answer: text ?? $("#answer").value });
       const summary = r.updates.filter((u) => u.action !== "keep").map((u) => `${u.action}: ${propOf(u.assumption_id).slice(0, 50)}`).join("; ");
       toast(r.note || (summary ? "Updated — " + summary : "Recorded; no candidate changed."), 7000);
-      if (!r.stop) await api("POST", "/api/interview/next", {}).catch(() => {});
-      loadInterview(); refreshStatus();
+      if (state.view === "interview") loadInterview();
+      if (!r.stop) await runJob("POST", "/api/interview/next", {}, { onDone: () => { if (state.view === "interview") loadInterview(); } }).catch(() => {});
     });
     $("#send-answer").addEventListener("click", send(null));
     $("#dont-know").addEventListener("click", send("I don't know."));
@@ -246,10 +313,10 @@ async function loadInterview() {
   } else {
     box.innerHTML = `<h2>Interview</h2><p class="hint">The model asks one question at a time, grounded in one of your episodes and chosen to tell competing candidates apart. Each answer is used to revise the candidates; a rejection prompts revision, never a label.</p>
       <div class="actions"><button class="primary" id="ask-next">Ask the next question</button></div><p id="ask-note" class="hint"></p>`;
-    $("#ask-next").addEventListener("click", (e) => busy(e.target, async () => {
-      const r = await api("POST", "/api/interview/next", {});
-      if (r.stop) $("#ask-note").textContent = "The model stopped: " + r.reason; else loadInterview();
-    }));
+    $("#ask-next").addEventListener("click", (e) => busy(e.target, () => runJob("POST", "/api/interview/next", {}, { onDone: (r) => {
+      if (state.view !== "interview") return;
+      if (r.stop) { loadInterview().then(() => { const n = $("#ask-note"); if (n) n.textContent = "The model stopped: " + r.reason; }); } else loadInterview();
+    } })));
   }
   $("#turn-list").innerHTML = turns.filter((t) => t.answer != null).reverse().map((t) => `<li><div><b>Q</b> ${esc(t.question)}</div><div><b>A</b> ${esc(t.answer)}${t.dont_know ? ' <span class="badge">don\'t know</span>' : ""}</div><div class="meta">${epLink(t.episode_id)} · ${esc(t.answered_at)}</div></li>`).join("") || '<li class="hint">No answered questions yet.</li>';
 }
@@ -275,8 +342,10 @@ async function loadHoldout() {
       <h3>What you actually recorded</h3><div class="locked grid2"><div><div class="label">Immediate thought</div>${esc(ep.immediate_thought)}</div><div><div class="label">Emotion and body</div>${esc(ep.emotion_body)}</div><div><div class="label">Action and outcome</div>${esc(ep.action_outcome)}</div></div>` : ""}
     </div>`;
   }).join("") : '<p class="hint">No reserved episodes. Mark an episode as reserved (or write a new one with the checkbox ticked).</p>';
-  document.querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", (e) => busy(e.target, async () => { await api("POST", `/api/holdout/${b.dataset.run}/run`); loadHoldout(); })));
+  document.querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", (e) => busy(e.target, () => runJob("POST", `/api/holdout/${b.dataset.run}/run`, null, { onDone: () => { if (state.view === "holdout") loadHoldout(); } }))));
   document.querySelectorAll("[data-rate]").forEach((b) => b.addEventListener("click", (e) => busy(e.target, async () => { await api("PATCH", `/api/predictions/${b.dataset.pid}/rating`, { rating: b.dataset.rate }); loadHoldout(); })));
 }
 
 showView("episodes");
+resumeActiveJobs();
+setInterval(() => { if (document.visibilityState === "visible") { refreshStatus().catch(() => {}); resumeActiveJobs(); } }, 15000);
