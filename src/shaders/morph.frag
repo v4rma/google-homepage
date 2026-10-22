@@ -91,7 +91,7 @@ vec2 curl(vec2 x, float alpha) {
 // Each octave is divided by its frequency so the weights express displacement
 // amplitude directly. Finer scales evolve faster, as in real turbulence.
 // ---------------------------------------------------------------------------
-vec2 flow(vec2 p, float t) {
+vec2 flow(vec2 p, float t, float tideWeight) {
   float s = uNoiseScale;
 
   float f0 = 0.9 * s;
@@ -106,9 +106,10 @@ vec2 flow(vec2 p, float t) {
   vec2 c3 = curl((p + 0.10 * c2) * f3 + vec2(-1.7, 6.3), t * 0.40 + 8.0) / f3;
 
   // A slow tide: one unified direction that veers over minutes, so the eddies
-  // are carried along instead of stirring in place.
+  // are carried along instead of stirring in place. Its weight is supplied by
+  // the caller so settled regions stay pinned and its speed varies regionally.
   float a = 0.55 + 0.35 * sin(t * 0.03 + 1.0);
-  vec2 tide = 0.3 * vec2(cos(a), sin(a));
+  vec2 tide = 0.3 * tideWeight * vec2(cos(a), sin(a));
 
   // Weighted so the displacement spectrum peaks at the medium folds rather
   // than at broad currents (rubber-sheeting) or fine ripples (marbling).
@@ -119,11 +120,11 @@ vec2 flow(vec2 p, float t) {
 // Trace a streamline through the (slowly evolving) field. `tau` is the
 // advection "time"; `dir` = -1 traces backwards (forward advection of the
 // image), +1 traces forwards (image arriving along the currents).
-vec2 trace(vec2 p, vec2 v0, float tau, float dir, float t) {
+vec2 trace(vec2 p, vec2 v0, float tau, float dir, float t, float tideWeight) {
   float h = tau / float(FLOW_STEPS);
   vec2 q = p + dir * h * v0;
   for (int i = 1; i < FLOW_STEPS; i++) {
-    q += dir * h * flow(q, t);
+    q += dir * h * flow(q, t, tideWeight);
   }
   return q;
 }
@@ -210,9 +211,10 @@ void main() {
   vec2 qA = p;
   vec2 qB = p;
   if (ampBase > 0.0) {
-    vec2 v0 = flow(p, t); // the first step is shared by both traces
-    qA = trace(p, v0, tauA, -1.0, t);
-    qB = trace(p, v0, tauB, 1.0, t);
+    float tideWeight = local * (0.6 + 0.8 * field0);
+    vec2 v0 = flow(p, t, tideWeight); // the first step is shared by both traces
+    qA = trace(p, v0, tauA, -1.0, t, tideWeight);
+    qB = trace(p, v0, tauB, 1.0, t, tideWeight);
   }
 
   vec2 scaleA = imageScale(uSizeA);
