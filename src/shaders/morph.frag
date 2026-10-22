@@ -94,25 +94,35 @@ vec2 curl(vec2 x, float alpha) {
 vec2 flow(vec2 p, float t) {
   float s = uNoiseScale;
 
-  float f0 = 1.05 * s;
-  float f1 = 2.9 * s;
-  float f2 = 7.5 * s;
+  float f0 = 0.9 * s;
+  float f1 = 2.1 * s;
+  float f2 = 5.0 * s;
+  float f3 = 10.5 * s;
 
-  vec2 c0 = curl(p * f0 + vec2(3.1, 7.7), t * 0.11) / f0;
-  vec2 c1 = curl((p + 0.22 * c0) * f1 + vec2(-5.2, 1.3), t * 0.21 + 1.7) / f1;
-  vec2 c2 = curl((p + 0.14 * c1) * f2 + vec2(9.4, -2.6), t * 0.37 + 4.0) / f2;
+  // |curl| of an octave is ~3/f, so the raw octaves are ~3.3, 1.4, 0.6, 0.29.
+  vec2 c0 = curl(p * f0 + vec2(3.1, 7.7), t * 0.08) / f0;
+  vec2 c1 = curl((p + 0.03 * c0) * f1 + vec2(-5.2, 1.3), t * 0.14 + 1.7) / f1;
+  vec2 c2 = curl((p + 0.06 * c1) * f2 + vec2(9.4, -2.6), t * 0.24 + 4.0) / f2;
+  vec2 c3 = curl((p + 0.10 * c2) * f3 + vec2(-1.7, 6.3), t * 0.40 + 8.0) / f3;
 
-  // ~unit RMS magnitude in frame-height units
-  return (c0 * 1.0 + c1 * 0.55 + c2 * 0.24) * 0.38;
+  // A slow tide: one unified direction that veers over minutes, so the eddies
+  // are carried along instead of stirring in place.
+  float a = 0.55 + 0.35 * sin(t * 0.03 + 1.0);
+  vec2 tide = 0.3 * vec2(cos(a), sin(a));
+
+  // Weighted so the displacement spectrum peaks at the medium folds rather
+  // than at broad currents (rubber-sheeting) or fine ripples (marbling).
+  // Result is roughly unit RMS in frame-height units.
+  return tide + c0 * 0.20 + c1 * 0.70 + c2 * 0.55 + c3 * 0.22;
 }
 
 // Trace a streamline through the (slowly evolving) field. `tau` is the
 // advection "time"; `dir` = -1 traces backwards (forward advection of the
 // image), +1 traces forwards (image arriving along the currents).
-vec2 trace(vec2 p, float tau, float dir, float t) {
+vec2 trace(vec2 p, vec2 v0, float tau, float dir, float t) {
   float h = tau / float(FLOW_STEPS);
-  vec2 q = p;
-  for (int i = 0; i < FLOW_STEPS; i++) {
+  vec2 q = p + dir * h * v0;
+  for (int i = 1; i < FLOW_STEPS; i++) {
     q += dir * h * flow(q, t);
   }
   return q;
@@ -127,9 +137,9 @@ float maskField(vec2 p, float t) {
   float n0 = psrdnoise(p * 0.9 * m + vec2(11.0, -3.0), t * 0.045, g);
   float n1 = psrdnoise(p * 2.1 * m + vec2(-7.0, 5.0), t * 0.08 + 2.0, g);
   float n2 = psrdnoise(p * 5.3 * m + vec2(4.0, 9.0), t * 0.14 + 5.0, g);
-  float n = n0 * 0.60 + n1 * 0.28 + n2 * 0.12;
+  float n = n0 * 0.58 + n1 * 0.28 + n2 * 0.14;
   // simplex noise rarely exceeds ±0.75; stretch so the field spans ~[0,1]
-  return clamp(n * 0.68 + 0.5, 0.0, 1.0);
+  return clamp(n * 0.95 + 0.5, 0.0, 1.0);
 }
 
 // Map from frame-normalised flow space (x in ±aspect/2, y in ±0.5) to an
@@ -177,14 +187,33 @@ void main() {
 
   // Advection "time" for each image. A keeps flowing away as progress grows,
   // B arrives from its displaced state and is exactly at rest at progress 1.
+  // Feather of the transition front, in progress units, and the progress
+  // remapped so the mask is exactly 0 at progress 0 and 1 at progress 1.
+  float w = mix(0.04, 0.45, pow(uSoftness, 1.5));
+  float pp = progress * (1.0 + 2.0 * w) - w;
+
+  // Where is this region in its own transition? Churn is concentrated around
+  // the moment the front passes; far from it both images sit almost still.
+  float field0 = maskField(p, t);
+  float thr0 = clamp(0.5 + (field0 - 0.5) * uTransitionWidth, 0.0, 1.0);
+  float d = pp - thr0;
+  float local = exp(-d * d / (2.0 * 0.25 * 0.25));
+  float churn = mix(0.3, 1.0, local);
+
   // B arrives a little less displaced than A departs so its bright matter,
   // which surfaces first, is never rubber-sheeted.
-  float amp = uWarpAmplitude * uIntensity * uMode;
+  float ampBase = uWarpAmplitude * uIntensity * uMode;
+  float amp = ampBase * churn;
   float tauA = amp * progress;
   float tauB = amp * 0.8 * (1.0 - progress);
 
-  vec2 qA = trace(p, tauA, -1.0, t);
-  vec2 qB = trace(p, tauB, 1.0, t);
+  vec2 qA = p;
+  vec2 qB = p;
+  if (ampBase > 0.0) {
+    vec2 v0 = flow(p, t); // the first step is shared by both traces
+    qA = trace(p, v0, tauA, -1.0, t);
+    qB = trace(p, v0, tauB, 1.0, t);
+  }
 
   vec2 scaleA = imageScale(uSizeA);
   vec2 scaleB = imageScale(uSizeB);
@@ -206,13 +235,18 @@ void main() {
   // B surfaces first through dark regions of A, dark masses of B arrive last.
   vec2 pm = mix(p, qA, 0.75);
   float field = maskField(pm, t);
-  float lumBias = (luma(colB) - luma(colA)) * 0.28;
+  float lumA = luma(colA);
+  float lumB = luma(colB);
+  float lumBias = (lumB - lumA) * 0.28;
   float threshold = 0.5 + (field - 0.5) * uTransitionWidth - lumBias * uTransitionWidth;
   threshold = clamp(threshold, 0.0, 1.0);
 
-  float w = mix(0.04, 0.55, uSoftness * uSoftness);
-  float pp = progress * (1.0 + 2.0 * w) - w;
   float fluidMask = smootherstep(threshold - w, threshold + w, pp);
+
+  // Inside the overlap band the darker pigment wins locally, so the two
+  // images interleave like ink rather than ghosting through each other.
+  float band = 4.0 * fluidMask * (1.0 - fluidMask);
+  fluidMask = clamp(fluidMask + (lumA - lumB) * 0.6 * band, 0.0, 1.0);
 
   float m = mix(progress, fluidMask, uMode);
 

@@ -10,7 +10,7 @@ export const DEFAULT_PARAMS = {
   mode: 'fluid', // 'fluid' | 'crossfade'
   fit: 'cover', // 'cover' | 'contain'
   noiseScale: 1,
-  warpAmplitude: 0.08,
+  warpAmplitude: 0.075,
   flowSpeed: 1,
   transitionWidth: 0.8,
   maskScale: 1,
@@ -49,7 +49,7 @@ export class FluidMorph {
       uMode: { value: 1 },
       uFit: { value: 1 },
       uIntensity: { value: 1 },
-      uWarpAmplitude: { value: 0.08 },
+      uWarpAmplitude: { value: 0.075 },
       uNoiseScale: { value: 1 },
       uFlowSpeed: { value: 1 },
       uSoftness: { value: 0.5 },
