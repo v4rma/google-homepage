@@ -114,7 +114,7 @@ let mouseTimer;
 window.addEventListener('pointermove', () => {
   document.body.classList.add('mouse-active');
   clearTimeout(mouseTimer);
-  mouseTimer = setTimeout(() => document.body.classList.remove('mouse-active'), 2000);
+  mouseTimer = setTimeout(() => document.body.classList.remove('mouse-active'), 3500);
 });
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;

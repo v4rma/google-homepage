@@ -13,7 +13,7 @@ export function isSupportedImage(file) {
  * disabled so the raw sRGB bytes reach the GPU untouched.
  */
 export async function decodeImage(blob, maxTextureSize) {
-  const base = { colorSpaceConversion: 'none', premultiplyAlpha: 'none', imageOrientation: 'none' };
+  const base = { colorSpaceConversion: 'none', premultiplyAlpha: 'none', imageOrientation: 'from-image' };
   let bitmap = await createImageBitmap(blob, base);
   const longest = Math.max(bitmap.width, bitmap.height);
   let downscaled = false;
