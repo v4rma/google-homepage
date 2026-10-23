@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Posterity — Fluid Morph</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+
+    <div id="drop-hint" aria-hidden="true">
+      <div class="drop-half"><span>Drop → Image A</span></div>
+      <div class="drop-half"><span>Drop → Image B</span></div>
+    </div>
+
+    <button id="show-controls" class="ghost" title="Show controls (H)">controls</button>
+
+    <aside id="panel">
+      <header>
+        <h1>Fluid Morph</h1>
+        <div class="header-actions">
+          <button id="fullscreen" class="ghost" title="Toggle fullscreen">fullscreen</button>
+          <button id="hide-controls" class="ghost" title="Hide controls (H)">hide</button>
+        </div>
+      </header>
+
+      <section class="row progress-row">
+        <label for="progress">Progress <output id="progress-out">0%</output></label>
+        <input id="progress" type="range" min="0" max="1" step="0.0001" value="0" />
+      </section>
+
+      <section class="row transport">
+        <button id="play" class="primary">Play</button>
+        <label for="duration" class="inline">Duration <output id="duration-out">20 s</output></label>
+        <input id="duration" type="range" min="5" max="60" step="1" value="20" />
+      </section>
+
+      <section class="row">
+        <label for="intensity">Fluid intensity <output id="intensity-out">1.00</output></label>
+        <input id="intensity" type="range" min="0" max="2" step="0.01" value="1" />
+      </section>
+
+      <section class="row">
+        <label for="softness">Transition softness <output id="softness-out">0.50</output></label>
+        <input id="softness" type="range" min="0" max="1" step="0.01" value="0.5" />
+      </section>
+
+      <section class="row seg">
+        <span class="seg-label">Mode</span>
+        <div class="segmented" role="radiogroup">
+          <button data-mode="fluid" class="active">Fluid morph</button>
+          <button data-mode="crossfade">Crossfade</button>
+        </div>
+      </section>
+
+      <section class="row seg">
+        <span class="seg-label">Fit</span>
+        <div class="segmented" role="radiogroup">
+          <button data-fit="cover" class="active">Cover</button>
+          <button data-fit="contain">Contain</button>
+        </div>
+      </section>
+
+      <section class="row images">
+        <label class="file">
+          <span class="file-tag">A</span>
+          <span id="name-a" class="file-name">imageA.webp</span>
+          <input id="file-a" type="file" accept="image/png,image/jpeg,image/webp" />
+        </label>
+        <label class="file">
+          <span class="file-tag">B</span>
+          <span id="name-b" class="file-name">imageB.webp</span>
+          <input id="file-b" type="file" accept="image/png,image/jpeg,image/webp" />
+        </label>
+        <p class="hint">or drag &amp; drop PNG / JPG / WebP onto the canvas (left half → A, right half → B, two files → A + B)</p>
+      </section>
+
+      <details id="advanced">
+        <summary>Advanced</summary>
+        <section class="row">
+          <label for="noiseScale">Noise scale <output id="noiseScale-out">1.00</output></label>
+          <input id="noiseScale" type="range" min="0.4" max="2.5" step="0.01" value="1" />
+        </section>
+        <section class="row">
+          <label for="warpAmplitude">Warp amplitude <output id="warpAmplitude-out">0.075</output></label>
+          <input id="warpAmplitude" type="range" min="0" max="0.25" step="0.001" value="0.075" />
+        </section>
+        <section class="row">
+          <label for="flowSpeed">Flow speed <output id="flowSpeed-out">1.00</output></label>
+          <input id="flowSpeed" type="range" min="0" max="3" step="0.01" value="1" />
+        </section>
+        <section class="row">
+          <label for="transitionWidth">Transition width <output id="transitionWidth-out">0.80</output></label>
+          <input id="transitionWidth" type="range" min="0" max="1" step="0.01" value="0.8" />
+        </section>
+        <section class="row">
+          <label for="maskScale">Mask scale <output id="maskScale-out">1.00</output></label>
+          <input id="maskScale" type="range" min="0.3" max="3" step="0.01" value="1" />
+        </section>
+        <section class="row seg">
+          <span class="seg-label">Render scale</span>
+          <div class="segmented" role="radiogroup">
+            <button data-render="0.5">½</button>
+            <button data-render="0.75">¾</button>
+            <button data-render="1" class="active">native</button>
+          </div>
+        </section>
+        <p id="stats" class="hint"></p>
+      </details>
+    </aside>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
